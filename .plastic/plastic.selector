@@ -1,0 +1,4 @@
+repository "Cript_Of_The_Necrodancer-TechnicalTest/Cript_Of_The_Necrodancer-TechnicalTest@6872317790702@cloud"
+  path "/"
+    br "/main"
+    co "/main"
