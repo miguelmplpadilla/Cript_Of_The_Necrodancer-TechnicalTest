@@ -11,7 +11,7 @@ namespace Resources.Scripts
 
         public Animator spriteAnimator;
 
-        protected Vector2Int _indexPosition;
+        public Vector2Int indexPosition;
         protected Vector2Int _nextIndexPosition;
 
         protected TileManager _currentTilePosition;
@@ -30,7 +30,7 @@ namespace Resources.Scripts
 
         protected virtual void Start()
         {
-            _currentTilePosition = MapTestGenerator.instance.grid[_indexPosition.x, _indexPosition.y];
+            _currentTilePosition = MapGenerator.instance.grid[indexPosition.x, indexPosition.y];
             transform.position = _currentTilePosition.transform.position;
             _currentTilePosition.tokenInside = this;
         }
@@ -57,7 +57,7 @@ namespace Resources.Scripts
             {
                 rb.MovePosition(targetPosition);
                 _currentTilePosition = nextTilePosition;
-                _indexPosition = _nextIndexPosition;
+                indexPosition = _nextIndexPosition;
                 _isMoving = false;
                 yield break;
             }
@@ -81,7 +81,7 @@ namespace Resources.Scripts
             _currentTilePosition.tokenInside = null;
 
             _currentTilePosition = nextTilePosition;
-            _indexPosition = _nextIndexPosition;
+            indexPosition = _nextIndexPosition;
             _isMoving = false;
             
             if (_currentTilePosition.tokenInside is DropBaseController coin)
@@ -127,8 +127,8 @@ namespace Resources.Scripts
         public virtual void ChangeLife(int value)
         {
             life += value;
-            PrintLife();
             
+            PrintLife();
             CheckLife();
         }
 
@@ -140,7 +140,7 @@ namespace Resources.Scripts
             Destroy(gameObject);
         }
 
-        protected void PrintLife()
+        protected virtual void PrintLife()
         {
             Debug.Log("Life: "+life);
         }

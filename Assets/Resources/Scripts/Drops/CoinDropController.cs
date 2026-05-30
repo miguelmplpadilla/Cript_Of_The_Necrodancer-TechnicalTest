@@ -10,7 +10,7 @@
             if (_hasAssignedTile)
                 return;
 
-            TileManager currentTile = MapTestGenerator.instance.GetNextGoldSpawnTile();
+            TileManager currentTile = MapGenerator.instance.GetNextGoldSpawnTile();
 
             if (currentTile != null)
                 AssignToTile(currentTile);

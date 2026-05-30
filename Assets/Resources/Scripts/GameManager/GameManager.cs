@@ -26,6 +26,8 @@ namespace Resources.Scripts
         
         private Coroutine _shakeCoroutine;
 
+        public GameObject prefabLifeEnemy;
+
         private void Awake()
         {
             instance = this;
@@ -148,7 +150,7 @@ namespace Resources.Scripts
         {
             GameObject coinPrefab = prefabCoinDrop != null
                 ? prefabCoinDrop
-                : MapTestGenerator.instance?.coinDropPrefab;
+                : MapGenerator.instance?.coinDropPrefab;
 
             if (coinPrefab == null)
             {

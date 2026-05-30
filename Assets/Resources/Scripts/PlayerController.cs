@@ -33,7 +33,7 @@ public class PlayerController : TokenController
 
     protected override void Start()
     {
-        _indexPosition = MapTestGenerator.instance.playerSpawnPosition;
+        indexPosition = MapGenerator.instance.playerSpawnPosition;
         base.Start();
     }
 
@@ -120,8 +120,8 @@ public class PlayerController : TokenController
     {
         if (Input.GetKeyDown(key))
         {
-            Vector2Int provisionalIndex = _indexPosition + new Vector2Int(x, y);
-            nextTilePosition = MapTestGenerator.instance.GetNextTile(provisionalIndex);
+            Vector2Int provisionalIndex = indexPosition + new Vector2Int(x, y);
+            nextTilePosition = MapGenerator.instance.GetNextTile(provisionalIndex);
             if (nextTilePosition != null) _nextIndexPosition = provisionalIndex;
             lastInput = key;
         }

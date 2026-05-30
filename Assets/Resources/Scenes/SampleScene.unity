@@ -311,6 +311,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   spriteAnimator: {fileID: 144756825}
+  indexPosition: {x: 0, y: 0}
   nextTilePosition: {fileID: 0}
   speed: 6
   life: 4
@@ -1472,6 +1473,14 @@ MonoBehaviour:
   exitPosition: {x: 0, y: 0}
   enemySpawnPositions: []
   goldSpawnPositions: []
+  generatedRooms: []
+  enemyPrefabs:
+  - {fileID: 2696799032358669449, guid: 999517dae4d41ca4e87832d167a3378c, type: 3}
+  - {fileID: 2696799032358669449, guid: 97fcb4d105ea14a6486d02d780384270, type: 3}
+  - {fileID: 1694810110888865968, guid: b18c14ebe80bceb49a30b135f46ae0b0, type: 3}
+  - {fileID: 1694810110888865968, guid: ffa0f77b7971643b5a7270d081a1ca15, type: 3}
+  enemyBlockerChance: 0.35
+  maxBreakableBlockersPerEncounter: 2
   goblinPrefab: {fileID: 1694810110888865968, guid: b18c14ebe80bceb49a30b135f46ae0b0, type: 3}
   slimePrefab: {fileID: 2696799032358669449, guid: 999517dae4d41ca4e87832d167a3378c, type: 3}
   coinDropPrefab: {fileID: 842410483017947433, guid: 3e1268dedfb397f4d96480137e9d43f0, type: 3}
@@ -1532,6 +1541,7 @@ MonoBehaviour:
   multiplierText: {fileID: 422599254}
   lifeBarPlayer: {fileID: 1856043048}
   prefabCoinDrop: {fileID: 842410483017947433, guid: 3e1268dedfb397f4d96480137e9d43f0, type: 3}
+  prefabLifeEnemy: {fileID: 1833147563687900231, guid: b36ba70892eda4a19a92cf9f041c4deb, type: 3}
 --- !u!1 &1930619877
 GameObject:
   m_ObjectHideFlags: 0
@@ -1686,90 +1696,6 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
---- !u!1 &2115031014
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2115031016}
-  - component: {fileID: 2115031015}
-  m_Layer: 0
-  m_Name: Square
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!212 &2115031015
-SpriteRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2115031014}
-  m_Enabled: 1
-  m_CastShadows: 0
-  m_ReceiveShadows: 0
-  m_DynamicOccludee: 1
-  m_StaticShadowCaster: 0
-  m_MotionVectors: 1
-  m_LightProbeUsage: 1
-  m_ReflectionProbeUsage: 1
-  m_RayTracingMode: 0
-  m_RayTraceProcedural: 0
-  m_RenderingLayerMask: 1
-  m_RendererPriority: 0
-  m_Materials:
-  - {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
-  m_StaticBatchInfo:
-    firstSubMesh: 0
-    subMeshCount: 0
-  m_StaticBatchRoot: {fileID: 0}
-  m_ProbeAnchor: {fileID: 0}
-  m_LightProbeVolumeOverride: {fileID: 0}
-  m_ScaleInLightmap: 1
-  m_ReceiveGI: 1
-  m_PreserveUVs: 0
-  m_IgnoreNormalsForChartDetection: 0
-  m_ImportantGI: 0
-  m_StitchLightmapSeams: 1
-  m_SelectedEditorRenderState: 0
-  m_MinimumChartSize: 4
-  m_AutoUVMaxDistance: 0.5
-  m_AutoUVMaxAngle: 89
-  m_LightmapParameters: {fileID: 0}
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_Sprite: {fileID: 7482667652216324306, guid: 311925a002f4447b3a28927169b83ea6, type: 3}
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_FlipX: 0
-  m_FlipY: 0
-  m_DrawMode: 0
-  m_Size: {x: 1, y: 1}
-  m_AdaptiveModeThreshold: 0.5
-  m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 1
-  m_MaskInteraction: 0
-  m_SpriteSortPoint: 0
---- !u!4 &2115031016
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2115031014}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1638.709, y: 904.1257, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -1778,4 +1704,3 @@ SceneRoots:
   - {fileID: 251196112}
   - {fileID: 1332553504}
   - {fileID: 292382340}
-  - {fileID: 2115031016}

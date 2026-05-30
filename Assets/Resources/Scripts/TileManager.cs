@@ -27,12 +27,12 @@ namespace Resources.Scripts
             TileType previousType = tileType;
             tileType = type;
 
-            TileData tileData = MapTestGenerator.instance.tileDatas.Find(it => it.tileType == tileType);
+            TileData tileData = MapGenerator.instance.tileDatas.Find(it => it.tileType == tileType);
 
             _sr.sprite = tileData.spriteTile;
 
             if (previousType == TileType.BREAKABLEWALL && tileType == TileType.WALKABLE)
-                MapTestGenerator.instance.RevealHiddenRoomFromEntrance(indexPosition);
+                MapGenerator.instance.RevealHiddenRoomFromEntrance(indexPosition);
         }
     }
 }

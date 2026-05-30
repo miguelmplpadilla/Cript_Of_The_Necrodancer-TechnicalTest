@@ -9,23 +9,31 @@ public class EnemyManager : TokenController
 
     public int cantCoinsDrop = 3;
     private bool _hasSpawnPosition;
+
+    private LifeBarEnemyController lifeBarEnemy;
+    
     
     public enum MovementType
     {
-        WAIT, MOVELEFT, MOVERIGHT, MOVEUP, MOVEDOWN, ATTACK, SPECIALMOVE
+        WAIT, MOVELEFT, MOVERIGHT, MOVEUP, MOVEDOWN
     }
     
     protected override void Start()
     {
+        lifeBarEnemy = Instantiate(GameManager.instance.prefabLifeEnemy, transform)
+            .GetComponent<LifeBarEnemyController>();
+        
+        lifeBarEnemy.SetUpLife(life);
+        
         if (!_hasSpawnPosition)
-            _indexPosition = MapTestGenerator.instance.GetNextEnemySpawnPosition();
+            indexPosition = MapGenerator.instance.GetNextEnemySpawnPosition();
 
         base.Start();
     }
 
     public void SetSpawnPosition(Vector2Int spawnPosition)
     {
-        _indexPosition = spawnPosition;
+        indexPosition = spawnPosition;
         _hasSpawnPosition = true;
     }
 
@@ -37,14 +45,7 @@ public class EnemyManager : TokenController
             yield break;
 
         if (movements[indexMovement] != MovementType.WAIT)
-        {
-            if (movements[indexMovement].ToString().Contains("MOVE"))
-                yield return MoveEnemy(movements[indexMovement]);
-            if (movements[indexMovement] == MovementType.ATTACK)
-                yield return Attack();
-            if (movements[indexMovement] == MovementType.SPECIALMOVE)
-                yield return SpecialMove();
-        }
+            yield return MoveEnemy(movements[indexMovement]);
 
         indexMovement++;
         if (indexMovement >= movements.Length)
@@ -72,7 +73,7 @@ public class EnemyManager : TokenController
         
         foreach (Vector2Int direction in directions)
         {
-            TileManager tile = MapTestGenerator.instance.GetNextTile(_indexPosition + direction);
+            TileManager tile = MapGenerator.instance.GetNextTile(indexPosition + direction);
 
             if (tile?.tokenInside is PlayerController player)
                 return player;
@@ -83,15 +84,21 @@ public class EnemyManager : TokenController
 
     protected IEnumerator MoveEnemy(MovementType direction)
     {
-        Vector2Int provisionalIndex = _indexPosition + GetSumIndex(direction);
-        nextTilePosition = MapTestGenerator.instance.GetNextTile(provisionalIndex);
+        Vector2Int provisionalIndex = indexPosition + GetSumIndex(direction);
+        nextTilePosition = MapGenerator.instance.GetNextTile(provisionalIndex);
 
-        transform.localScale = new Vector3(provisionalIndex.x > _indexPosition.x ? 1 : -1, 1, 1);
+        transform.localScale = new Vector3(provisionalIndex.x > indexPosition.x ? 1 : -1, 1, 1);
 
         if (nextTilePosition == null || 
-            nextTilePosition.tileType == TileManager.TileType.BREAKABLEWALL || 
-            nextTilePosition == PlayerController.instance.nextTilePosition ||
-            nextTilePosition?.tokenInside is PlayerController) yield break;
+            nextTilePosition.tileType == TileManager.TileType.BREAKABLEWALL) yield break;
+
+
+        if (nextTilePosition == PlayerController.instance.nextTilePosition ||
+            nextTilePosition?.tokenInside is PlayerController)
+        {
+            yield return Attack();
+            yield break;
+        }
 
         _nextIndexPosition = provisionalIndex;
 
@@ -118,5 +125,11 @@ public class EnemyManager : TokenController
         if (life <= 0)
             GameManager.instance.CreateCoinDrop(cantCoinsDrop, _currentTilePosition);
         base.CheckLife();
+    }
+
+    protected override void PrintLife()
+    {
+        lifeBarEnemy.ChangeLife(life, maxLife);
+        lifeBarEnemy.gameObject.SetActive(true);
     }
 }

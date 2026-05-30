@@ -4,9 +4,9 @@ using Resources.Scripts;
 using Resources.Scripts.Drops;
 using UnityEngine;
 
-public class MapTestGenerator : MonoBehaviour
+public class MapGenerator : MonoBehaviour
 {
-    public static MapTestGenerator instance;
+    public static MapGenerator instance;
     
     public bool useProceduralTerrain = true;
     public int minMapSize = 25;
@@ -26,14 +26,15 @@ public class MapTestGenerator : MonoBehaviour
     public List<Vector2Int> enemySpawnPositions = new List<Vector2Int>();
     public List<Vector2Int> goldSpawnPositions = new List<Vector2Int>();
     public List<SecretRoomData> secretRooms = new List<SecretRoomData>();
+    public List<RectInt> generatedRooms = new List<RectInt>();
 
-    public GameObject goblinPrefab;
-    public GameObject slimePrefab;
+    public List<GameObject> enemyPrefabs = new List<GameObject>();
+    public float enemyBlockerChance = 0.35f;
+    public int maxBreakableBlockersPerEncounter = 2;
     
     public GameObject coinDropPrefab;
     public bool spawnGeneratedContent = true;
     public bool removeScenePlacedEnemiesAndCoins = true;
-    public int maxGoblins = 3;
 
     private int _nextEnemySpawnIndex;
     private int _nextGoldSpawnIndex;
@@ -62,6 +63,7 @@ public class MapTestGenerator : MonoBehaviour
         enemySpawnPositions = new List<Vector2Int>(terrain.EnemyPositions);
         goldSpawnPositions = new List<Vector2Int>(terrain.GoldPositions);
         secretRooms = new List<SecretRoomData>(terrain.SecretRooms);
+        generatedRooms = new List<RectInt>(terrain.Rooms);
 
         CreateGridFromTiles(terrain.Tiles);
         CreateHiddenRoomCovers();
@@ -93,6 +95,10 @@ public class MapTestGenerator : MonoBehaviour
         enemySpawnPositions = new List<Vector2Int> { new Vector2Int(sizeGridX - 5, sizeGridY - 5) };
         goldSpawnPositions = new List<Vector2Int> { new Vector2Int(sizeGridX - 7, sizeGridY - 7) };
         secretRooms = new List<SecretRoomData>();
+        generatedRooms = new List<RectInt>
+        {
+            new RectInt(1, 1, sizeGridX - 2, sizeGridY - 2)
+        };
         CreateGridFromTiles(tiles);
         SpawnGeneratedContent();
     }
@@ -228,37 +234,29 @@ public class MapTestGenerator : MonoBehaviour
         foreach (SecretRoomData secretRoom in secretRooms)
         {
             List<GameObject> covers = new List<GameObject>();
+            HashSet<Vector2Int> visibleEntranceWalls = new HashSet<Vector2Int>
+            {
+                secretRoom.EntrancePosition
+            };
             RectInt hiddenBounds = new RectInt(
                 secretRoom.Room.xMin - 1,
                 secretRoom.Room.yMin - 1,
                 secretRoom.Room.width + 2,
                 secretRoom.Room.height + 2);
 
-            AddHiddenCoverPieces(secretRoom.EntrancePosition, hiddenBounds, covers);
-            RegisterHiddenRoomRevealTiles(hiddenBounds, covers);
+            AddHiddenCoverPieces(hiddenBounds, visibleEntranceWalls, covers);
+            RegisterHiddenRoomRevealTiles(visibleEntranceWalls, covers);
         }
     }
 
-    private void RegisterHiddenRoomRevealTiles(RectInt hiddenBounds, List<GameObject> covers)
+    private void RegisterHiddenRoomRevealTiles(HashSet<Vector2Int> visibleEntranceWalls, List<GameObject> covers)
     {
-        for (int x = hiddenBounds.xMin; x < hiddenBounds.xMax; x++)
+        foreach (Vector2Int position in visibleEntranceWalls)
         {
-            for (int y = hiddenBounds.yMin; y < hiddenBounds.yMax; y++)
-            {
-                bool isBorder = x == hiddenBounds.xMin ||
-                                y == hiddenBounds.yMin ||
-                                x == hiddenBounds.xMax - 1 ||
-                                y == hiddenBounds.yMax - 1;
+            TileManager tile = GetTile(position);
 
-                if (!isBorder)
-                    continue;
-
-                Vector2Int position = new Vector2Int(x, y);
-                TileManager tile = GetTile(position);
-
-                if (tile != null && tile.tileType == TileManager.TileType.BREAKABLEWALL)
-                    _hiddenRoomCovers[position] = covers;
-            }
+            if (tile != null && tile.tileType == TileManager.TileType.BREAKABLEWALL)
+                _hiddenRoomCovers[position] = covers;
         }
     }
 
@@ -274,23 +272,32 @@ public class MapTestGenerator : MonoBehaviour
         return Sprite.Create(texture, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
     }
 
-    private void AddHiddenCoverPieces(Vector2Int entrancePosition, RectInt hiddenBounds, List<GameObject> covers)
+    private void AddHiddenCoverPieces(
+        RectInt hiddenBounds,
+        HashSet<Vector2Int> visibleEntranceWalls,
+        List<GameObject> covers)
     {
-        bool entranceOnVerticalEdge = entrancePosition.x == hiddenBounds.xMin ||
-                                      entrancePosition.x == hiddenBounds.xMax - 1;
+        for (int x = hiddenBounds.xMin; x < hiddenBounds.xMax; x++)
+        {
+            for (int y = hiddenBounds.yMin; y < hiddenBounds.yMax; y++)
+            {
+                Vector2Int position = new Vector2Int(x, y);
 
-        if (entranceOnVerticalEdge)
-        {
-            int mainX = entrancePosition.x == hiddenBounds.xMin ? hiddenBounds.xMin + 1 : hiddenBounds.xMin;
-            int mainWidth = hiddenBounds.width - 1;
-            AddHiddenCoverRect(new RectInt(mainX, hiddenBounds.yMin, mainWidth, hiddenBounds.height), covers);
+                if (IsVisibleEntranceWall(position, visibleEntranceWalls))
+                    continue;
+
+                AddHiddenCoverRect(new RectInt(x, y, 1, 1), covers);
+            }
         }
-        else
-        {
-            int mainY = entrancePosition.y == hiddenBounds.yMin ? hiddenBounds.yMin + 1 : hiddenBounds.yMin;
-            int mainHeight = hiddenBounds.height - 1;
-            AddHiddenCoverRect(new RectInt(hiddenBounds.xMin, mainY, hiddenBounds.width, mainHeight), covers);
-        }
+    }
+
+    private bool IsVisibleEntranceWall(Vector2Int position, HashSet<Vector2Int> visibleEntranceWalls)
+    {
+        if (!visibleEntranceWalls.Contains(position))
+            return false;
+
+        TileManager tile = GetTile(position);
+        return tile != null && tile.tileType == TileManager.TileType.BREAKABLEWALL;
     }
 
     private void AddHiddenCoverRect(RectInt rect, List<GameObject> covers)
@@ -345,49 +352,281 @@ public class MapTestGenerator : MonoBehaviour
 
     private void SpawnEnemies()
     {
-        if (slimePrefab == null && goblinPrefab == null)
+        if (GetValidEnemyPrefabCount() == 0)
         {
-            Debug.LogWarning("No enemy prefabs assigned in MapTestGenerator.");
+            Debug.LogWarning("No enemy prefabs assigned in MapGenerator.enemyPrefabs.");
             return;
         }
 
-        int spawnedGoblins = 0;
-        int goblinBudget = Mathf.Min(maxGoblins, Mathf.Max(1, enemySpawnPositions.Count / 4));
+        SpawnEnemyEncounters();
+    }
 
-        for (int i = 0; i < enemySpawnPositions.Count; i++)
+    private void SpawnEnemyEncounters()
+    {
+        System.Random random = new System.Random(seed == 0 ? Environment.TickCount : seed + 7919);
+        List<Vector2Int> unassignedPositions = new List<Vector2Int>(enemySpawnPositions);
+
+        for (int roomIndex = 1; roomIndex < generatedRooms.Count; roomIndex++)
         {
-            bool useGoblin = goblinPrefab != null &&
-                             spawnedGoblins < goblinBudget &&
-                             i >= 2 &&
-                             i % 3 == 0;
-            GameObject prefab = useGoblin || slimePrefab == null ? goblinPrefab : slimePrefab;
+            RectInt room = generatedRooms[roomIndex];
+            List<Vector2Int> encounterPositions = TakeEnemyPositionsInRoom(room, unassignedPositions, random);
 
-            if (prefab == null)
+            if (encounterPositions.Count == 0)
                 continue;
 
-            GameObject enemyObject = Instantiate(prefab, transform);
-            EnemyManager enemy = enemyObject.GetComponent<EnemyManager>();
+            SpawnEncounter(roomIndex, room, encounterPositions, random);
+        }
 
-            if (enemy == null)
-            {
-                Debug.LogWarning($"{prefab.name} does not have an EnemyManager component.");
-                Destroy(enemyObject);
-                continue;
-            }
-
-            enemy.SetSpawnPosition(enemySpawnPositions[i]);
-            enemyObject.SetActive(true);
-
-            if (useGoblin)
-                spawnedGoblins++;
+        foreach (Vector2Int enemyPosition in unassignedPositions)
+        {
+            int enemyTier = ChooseEnemyPrefabTier(0f, 0, 1, random);
+            SpawnEnemy(GetEnemyPrefabByTier(enemyTier), enemyPosition);
         }
     }
+
+    private List<Vector2Int> TakeEnemyPositionsInRoom(
+        RectInt room,
+        List<Vector2Int> availablePositions,
+        System.Random random)
+    {
+        List<Vector2Int> positions = new List<Vector2Int>();
+
+        for (int i = availablePositions.Count - 1; i >= 0; i--)
+        {
+            Vector2Int position = availablePositions[i];
+
+            if (!room.Contains(position))
+                continue;
+
+            positions.Add(position);
+            availablePositions.RemoveAt(i);
+        }
+
+        Shuffle(positions, random);
+        return positions;
+    }
+
+    private void SpawnEncounter(int roomIndex, RectInt room, List<Vector2Int> positions, System.Random random)
+    {
+        float difficulty = GetRoomDifficulty(roomIndex, room);
+        PlaceBreakableBlockersForEncounter(room, positions, difficulty, random);
+
+        for (int i = 0; i < positions.Count; i++)
+        {
+            int enemyTier = ChooseEnemyPrefabTier(difficulty, i, positions.Count, random);
+            SpawnEnemy(GetEnemyPrefabByTier(enemyTier), positions[i]);
+        }
+    }
+
+    private float GetRoomDifficulty(int roomIndex, RectInt room)
+    {
+        Vector2Int roomCenter = new Vector2Int(room.x + room.width / 2, room.y + room.height / 2);
+        float maxDistance = Mathf.Max(sizeGridX, sizeGridY);
+        float distanceDifficulty = Mathf.Clamp01(Vector2Int.Distance(playerSpawnPosition, roomCenter) / maxDistance);
+        float orderDifficulty = generatedRooms.Count <= 2 ? 0f : roomIndex / (float)(generatedRooms.Count - 1);
+        float areaBonus = Mathf.Clamp01((room.width * room.height - 35f) / 45f) * 0.2f;
+
+        return Mathf.Clamp01(Mathf.Max(distanceDifficulty, orderDifficulty) + areaBonus);
+    }
+
+    private int ChooseEnemyPrefabTier(float difficulty, int enemySlot, int enemiesInEncounter, System.Random random)
+    {
+        int prefabCount = GetValidEnemyPrefabCount();
+
+        if (prefabCount <= 1)
+            return 0;
+
+        int mainTier = Mathf.Clamp(Mathf.RoundToInt(difficulty * (prefabCount - 1)), 0, prefabCount - 1);
+
+        if (difficulty > 0.55f && enemiesInEncounter >= 2 && random.NextDouble() < 0.35)
+            mainTier = Mathf.Min(prefabCount - 1, mainTier + 1);
+
+        if (enemySlot == 0)
+            return mainTier;
+
+        int weakestSupportTier = Mathf.Max(0, mainTier - 2);
+        int strongSupportTier = Mathf.Max(0, mainTier - 1);
+
+        if (difficulty > 0.65f && enemySlot == 1)
+            return strongSupportTier;
+        if (random.NextDouble() < 0.35)
+            return mainTier;
+
+        return random.Next(weakestSupportTier, strongSupportTier + 1);
+    }
+
+    private void PlaceBreakableBlockersForEncounter(
+        RectInt room,
+        List<Vector2Int> enemyPositions,
+        float difficulty,
+        System.Random random)
+    {
+        int blockersPlaced = 0;
+        float chance = Mathf.Clamp01(enemyBlockerChance + difficulty * 0.25f);
+
+        foreach (Vector2Int enemyPosition in enemyPositions)
+        {
+            if (blockersPlaced >= maxBreakableBlockersPerEncounter)
+                return;
+            if (random.NextDouble() > chance)
+                continue;
+
+            List<Vector2Int> candidates = GetBreakableBlockerCandidates(room, enemyPosition, enemyPositions);
+            Shuffle(candidates, random);
+
+            foreach (Vector2Int candidate in candidates)
+            {
+                TileManager tile = GetTile(candidate);
+
+                if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+                    continue;
+
+                tile.SetTileType(TileManager.TileType.BREAKABLEWALL);
+                blockersPlaced++;
+                break;
+            }
+        }
+    }
+
+    private List<Vector2Int> GetBreakableBlockerCandidates(
+        RectInt room,
+        Vector2Int enemyPosition,
+        List<Vector2Int> enemyPositions)
+    {
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int candidate = enemyPosition + direction;
+
+            if (!room.Contains(candidate))
+                continue;
+            if (enemyPositions.Contains(candidate))
+                continue;
+            if (candidate == playerSpawnPosition || candidate == exitPosition)
+                continue;
+            if (goldSpawnPositions.Contains(candidate))
+                continue;
+            if (CountWalkableNeighborTiles(candidate) < 2)
+                continue;
+            if (CountFreeEnemyMovesAfterBlock(enemyPosition, candidate) < 2)
+                continue;
+
+            candidates.Add(candidate);
+        }
+
+        return candidates;
+    }
+
+    private int CountFreeEnemyMovesAfterBlock(Vector2Int enemyPosition, Vector2Int blockedPosition)
+    {
+        int freeMoves = 0;
+
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int position = enemyPosition + direction;
+
+            if (position == blockedPosition)
+                continue;
+
+            TileManager tile = GetTile(position);
+
+            if (tile != null && tile.tileType == TileManager.TileType.WALKABLE && tile.tokenInside == null)
+                freeMoves++;
+        }
+
+        return freeMoves;
+    }
+
+    private int CountWalkableNeighborTiles(Vector2Int position)
+    {
+        int neighbors = 0;
+
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            TileManager tile = GetTile(position + direction);
+
+            if (tile != null && tile.tileType == TileManager.TileType.WALKABLE)
+                neighbors++;
+        }
+
+        return neighbors;
+    }
+
+    private void SpawnEnemy(GameObject prefab, Vector2Int spawnPosition)
+    {
+        if (prefab == null)
+            return;
+
+        GameObject enemyObject = Instantiate(prefab, transform);
+        EnemyManager enemy = enemyObject.GetComponent<EnemyManager>();
+
+        if (enemy == null)
+        {
+            Debug.LogWarning($"{prefab.name} does not have an EnemyManager component.");
+            Destroy(enemyObject);
+            return;
+        }
+
+        enemy.SetSpawnPosition(spawnPosition);
+        enemyObject.SetActive(true);
+    }
+
+    private int GetValidEnemyPrefabCount()
+    {
+        int count = 0;
+
+        for (int i = 0; i < enemyPrefabs.Count; i++)
+        {
+            if (enemyPrefabs[i] != null)
+                count++;
+        }
+
+        return count;
+    }
+
+    private GameObject GetEnemyPrefabByTier(int tier)
+    {
+        int currentTier = 0;
+
+        for (int i = 0; i < enemyPrefabs.Count; i++)
+        {
+            if (enemyPrefabs[i] == null)
+                continue;
+
+            if (currentTier == tier)
+                return enemyPrefabs[i];
+
+            currentTier++;
+        }
+
+        return null;
+    }
+
+    private void Shuffle<T>(List<T> list, System.Random random)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int swapIndex = random.Next(i + 1);
+            T temp = list[i];
+            list[i] = list[swapIndex];
+            list[swapIndex] = temp;
+        }
+    }
+
+    private static readonly Vector2Int[] CardinalDirections =
+    {
+        Vector2Int.right,
+        Vector2Int.left,
+        Vector2Int.up,
+        Vector2Int.down
+    };
 
     private void SpawnGold()
     {
         if (coinDropPrefab == null)
         {
-            Debug.LogWarning("No coin drop prefab assigned in MapTestGenerator.");
+            Debug.LogWarning("No coin drop prefab assigned in MapGenerator.");
             return;
         }
 
