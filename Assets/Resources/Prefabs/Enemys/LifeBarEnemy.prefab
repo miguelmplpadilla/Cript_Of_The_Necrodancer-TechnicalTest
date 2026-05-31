@@ -191,8 +191,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 59cd669c784824d5ea0007e1b660d160, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  barLife: {fileID: 9006164556302553494}
-  barFront: {fileID: 2062336674186067465}
+  barLife: {fileID: 338979658202633192}
+  barFront: {fileID: 5398573336344939792}
 --- !u!1 &2756491357513954928
 GameObject:
   m_ObjectHideFlags: 0

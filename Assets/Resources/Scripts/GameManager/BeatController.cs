@@ -7,11 +7,11 @@ namespace Resources.Scripts
     {
         public static BeatController instance;
         
-        private float beatTimeCanPlayRest = 1;
-        private float beatTimeCanPlaySum = 1;
         public float beatTimeInSeconds = 1;
         public int beatsToReachCenter = 2;
         private float timer = 0;
+        
+        public float beatInputWindow = 0.35f;
 
         public bool canRegisterPlay = false;
 
@@ -23,6 +23,8 @@ namespace Resources.Scripts
 
         public GameObject heart;
 
+        private bool beatPlayed = false;
+
         private void Awake()
         {
             instance = this;
@@ -30,8 +32,7 @@ namespace Resources.Scripts
 
         private void Start()
         {
-            beatTimeCanPlayRest = beatTimeInSeconds - 0.35f;
-            beatTimeCanPlaySum = beatTimeInSeconds + 0.35f;
+            EventBus<BeatEvent>.Register(new EventBinding<BeatEvent>(PlayBeat, gameObject));
 
             CreateInitialBeatLineQueue();
         }
@@ -40,11 +41,16 @@ namespace Resources.Scripts
         {
             timer += Time.deltaTime;
 
-            canRegisterPlay = timer >= beatTimeCanPlayRest || timer <= beatTimeCanPlaySum;
+            canRegisterPlay = timer <= beatInputWindow ||
+                              timer >= beatTimeInSeconds - beatInputWindow;
 
             while (timer >= beatTimeInSeconds)
             {
-                EventBus<BeatEvent>.Raise(new BeatEvent());
+                if (!beatPlayed)
+                    EventBus<BeatEvent>.Raise(new BeatEvent());
+
+                beatPlayed = false;
+
                 StartCoroutine(GameManager.instance.Heartbeat(heart, 1.1f, 0.05f));
                 timer -= beatTimeInSeconds;
                 CreateBeatLines(0f);
@@ -93,6 +99,11 @@ namespace Resources.Scripts
             lineBeat.transform.position = endPos;
             
             Destroy(lineBeat);
+        }
+
+        private void PlayBeat()
+        {
+            beatPlayed = true;
         }
     }
     

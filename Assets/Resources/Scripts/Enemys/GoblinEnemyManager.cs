@@ -1,9 +1,10 @@
+using System;
 using System.Collections;
 using UnityEngine;
 
 public class GoblinEnemyManager : EnemyManager
 {
-    private int countBeats = 0;
+    protected int countBeats = 0;
     public int waitBeats = 2;
     
     protected override IEnumerator PlayBeat()
@@ -21,10 +22,10 @@ public class GoblinEnemyManager : EnemyManager
 
         MovementType nextMovementType;
         
-        if (positionIndexPlayer.y - indexPosition.y > positionIndexPlayer.x - indexPosition.x)
+        if (Math.Abs(positionIndexPlayer.y - indexPosition.y) > Math.Abs(positionIndexPlayer.x - indexPosition.x))
             nextMovementType = positionIndexPlayer.y > indexPosition.y ? MovementType.MOVEDOWN : MovementType.MOVEUP;
         else
-            nextMovementType = positionIndexPlayer.x > indexPosition.x ? MovementType.MOVELEFT : MovementType.MOVERIGHT;
+            nextMovementType = positionIndexPlayer.x > indexPosition.x ? MovementType.MOVERIGHT : MovementType.MOVELEFT;
 
         yield return MoveEnemy(nextMovementType);
     }

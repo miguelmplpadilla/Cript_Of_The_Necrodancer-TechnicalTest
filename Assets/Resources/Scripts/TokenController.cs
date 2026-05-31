@@ -6,6 +6,7 @@ namespace Resources.Scripts
     public class TokenController : MonoBehaviour
     {
         private Rigidbody2D rb;
+        private Vector3 _spriteAnimatorBaseLocalPosition;
     
         protected bool _isMoving = false;
 
@@ -25,6 +26,13 @@ namespace Resources.Scripts
         {
             life = maxLife;
             rb = GetComponent<Rigidbody2D>();
+
+            if (spriteAnimator == null)
+                spriteAnimator = GetComponentInChildren<Animator>();
+
+            if (spriteAnimator != null)
+                _spriteAnimatorBaseLocalPosition = spriteAnimator.transform.localPosition;
+
             EventBus<BeatEvent>.Register(new EventBinding<BeatEvent>(() => { StartCoroutine(PlayBeat()); }, gameObject));
         }
 
@@ -32,6 +40,7 @@ namespace Resources.Scripts
         {
             _currentTilePosition = MapGenerator.instance.grid[indexPosition.x, indexPosition.y];
             transform.position = _currentTilePosition.transform.position;
+            ResetSpriteAnimatorPosition();
             _currentTilePosition.tokenInside = this;
         }
 
@@ -47,6 +56,9 @@ namespace Resources.Scripts
         
         protected IEnumerator Move()
         {
+            if (_isMoving)
+                yield break;
+
             _isMoving = true;
             Vector2 startPosition = rb.position;
             Vector2 targetPosition = nextTilePosition.transform.position;
@@ -62,8 +74,13 @@ namespace Resources.Scripts
                 yield break;
             }
 
-            Coroutine jumpCoroutine = StartCoroutine(JumpAnimation(movementDuration, spriteAnimator.gameObject));
-            spriteAnimator.SetTrigger("jump");
+            Coroutine jumpCoroutine = null;
+
+            if (spriteAnimator != null)
+            {
+                jumpCoroutine = StartCoroutine(JumpAnimation(movementDuration, spriteAnimator.gameObject));
+                spriteAnimator.SetTrigger("jump");
+            }
         
             while (elapsed < movementDuration)
             {
@@ -76,7 +93,9 @@ namespace Resources.Scripts
             }
 
             rb.MovePosition(targetPosition);
-            yield return jumpCoroutine;
+
+            if (jumpCoroutine != null)
+                yield return jumpCoroutine;
             
             _currentTilePosition.tokenInside = null;
 
@@ -92,12 +111,22 @@ namespace Resources.Scripts
         
         protected IEnumerator JumpAnimation(float duration, GameObject objAnimation)
         {
-            Vector3 originalPosition = objAnimation.transform.localPosition;
+            Vector3 originalPosition = objAnimation == spriteAnimator?.gameObject
+                ? _spriteAnimatorBaseLocalPosition
+                : objAnimation.transform.localPosition;
             Vector3 nextPosition = originalPosition + Vector3.up * 0.42f;
             float halfDuration = duration * 0.5f;
+
+            objAnimation.transform.localPosition = originalPosition;
         
             yield return MoveJumpAnimation(nextPosition, halfDuration, objAnimation);
             yield return MoveJumpAnimation(originalPosition, halfDuration, objAnimation);
+        }
+
+        private void ResetSpriteAnimatorPosition()
+        {
+            if (spriteAnimator != null)
+                spriteAnimator.transform.localPosition = _spriteAnimatorBaseLocalPosition;
         }
 
         protected IEnumerator MoveJumpAnimation(Vector3 finalPosition, float duration, GameObject objAnimation)

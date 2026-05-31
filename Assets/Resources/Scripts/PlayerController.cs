@@ -60,6 +60,8 @@ public class PlayerController : TokenController
 
             if (nextTilePosition.tokenInside != null && nextTilePosition.tokenInside is EnemyManager)
                 _actionType = ActionType.ATTACK;
+
+            EventBus<BeatEvent>.Raise(new BeatEvent());
         }
     }
 

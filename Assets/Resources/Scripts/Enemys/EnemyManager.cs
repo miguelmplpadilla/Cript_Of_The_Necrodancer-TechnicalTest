@@ -84,13 +84,19 @@ public class EnemyManager : TokenController
 
     protected IEnumerator MoveEnemy(MovementType direction)
     {
+        if (_isMoving) yield break;
+
         Vector2Int provisionalIndex = indexPosition + GetSumIndex(direction);
         nextTilePosition = MapGenerator.instance.GetNextTile(provisionalIndex);
 
         transform.localScale = new Vector3(provisionalIndex.x > indexPosition.x ? 1 : -1, 1, 1);
 
         if (nextTilePosition == null || 
-            nextTilePosition.tileType == TileManager.TileType.BREAKABLEWALL) yield break;
+            nextTilePosition.tileType == TileManager.TileType.BREAKABLEWALL)
+        {
+            StartCoroutine(PlayBeat());
+            yield break;
+        }
 
 
         if (nextTilePosition == PlayerController.instance.nextTilePosition ||

@@ -6,31 +6,68 @@ using UnityEngine;
 public sealed class NecrodancerTerrainGenerator
 {
     private const int BorderSize = 1;
-    private const int SpawnSafeRadius = 3;
+    private const int SpawnSafeRadius = 2;
     private const int MaxGenerationAttempts = 80;
+    private const int PreferredRoomSeparation = 4;
+    private const int MinimumRoomSeparation = 2;
 
-    public NecrodancerTerrainData Generate(int minMapSize, int maxMapSize, int minRooms, int maxRooms, int seed)
+    public NecrodancerTerrainData Generate(
+        int minMapSize,
+        int maxMapSize,
+        int minRooms,
+        int maxRooms,
+        int seed,
+        int maxEnemiesPerRoom = 3)
     {
         minMapSize = Mathf.Clamp(minMapSize, 25, 40);
         maxMapSize = Mathf.Clamp(maxMapSize, minMapSize, 40);
         minRooms = Mathf.Clamp(minRooms, 5, 14);
         maxRooms = Mathf.Clamp(maxRooms, minRooms, 14);
+        maxEnemiesPerRoom = Mathf.Clamp(maxEnemiesPerRoom, 1, 8);
 
         int baseSeed = seed == 0 ? Environment.TickCount : seed;
+        NecrodancerTerrainData bestTerrain = null;
+        int bestTerrainScore = -1;
 
         for (int attempt = 0; attempt < MaxGenerationAttempts; attempt++)
         {
             System.Random random = new System.Random(baseSeed + attempt);
-            NecrodancerTerrainData terrain = BuildTerrain(minMapSize, maxMapSize, minRooms, maxRooms, random);
+            NecrodancerTerrainData terrain = BuildTerrain(
+                minMapSize,
+                maxMapSize,
+                minRooms,
+                maxRooms,
+                maxEnemiesPerRoom,
+                random);
 
             if (IsValidTerrain(terrain, minRooms, maxRooms))
                 return terrain;
+
+            int terrainScore = GetTerrainScore(terrain, minRooms);
+
+            if (terrainScore > bestTerrainScore)
+            {
+                bestTerrainScore = terrainScore;
+                bestTerrain = terrain;
+            }
         }
 
-        throw new InvalidOperationException("Could not generate a valid Necrodancer terrain with the current rules.");
+        if (bestTerrain != null)
+        {
+            Debug.LogWarning("Could not generate a fully valid Necrodancer terrain. Using the best repaired terrain instead.");
+            return bestTerrain;
+        }
+
+        throw new InvalidOperationException("Could not generate a playable Necrodancer terrain with the current rules.");
     }
 
-    private NecrodancerTerrainData BuildTerrain(int minMapSize, int maxMapSize, int minRooms, int maxRooms, System.Random random)
+    private NecrodancerTerrainData BuildTerrain(
+        int minMapSize,
+        int maxMapSize,
+        int minRooms,
+        int maxRooms,
+        int maxEnemiesPerRoom,
+        System.Random random)
     {
         int width = random.Next(minMapSize, maxMapSize + 1);
         int height = random.Next(minMapSize, maxMapSize + 1);
@@ -39,25 +76,30 @@ public sealed class NecrodancerTerrainGenerator
         NecrodancerTerrainData terrain = new NecrodancerTerrainData(width, height);
         Fill(terrain.Tiles, TileManager.TileType.WALL);
 
-        CreateRooms(terrain, targetRooms, random);
-        ConnectRooms(terrain, random);
+        CreateRooms(terrain, minRooms, targetRooms, random);
         terrain.PlayerSpawnPosition = GetRoomCenter(terrain.Rooms[0]);
-        AddSecretRooms(terrain, random, random.Next(2, 5));
+        AddRoomWallLayers(terrain, terrain.Rooms, random);
+        ConnectRooms(terrain, random);
         AddIrregularOpenZones(terrain, random);
+        AddSecretRooms(terrain, random, random.Next(2, 5), 8);
+
+        if (terrain.SecretRooms.Count == 0)
+            AddSecretRooms(terrain, random, 1, 0);
 
         CarveSpawnSafeZone(terrain);
         terrain.ExitPosition = GetFarthestRoomCenter(terrain.Rooms, terrain.PlayerSpawnPosition);
 
-        PlaceEnemies(terrain, random);
+        PlaceEnemies(terrain, random, maxEnemiesPerRoom);
+        EnsureEnemyPosition(terrain);
         PlaceBreakableWallsAndGold(terrain, random);
 
         return terrain;
     }
 
-    private void CreateRooms(NecrodancerTerrainData terrain, int targetRooms, System.Random random)
+    private void CreateRooms(NecrodancerTerrainData terrain, int minRooms, int targetRooms, System.Random random)
     {
-        int firstRoomWidth = random.Next(8, 11);
-        int firstRoomHeight = random.Next(7, 10);
+        int firstRoomWidth = random.Next(6, 9);
+        int firstRoomHeight = random.Next(5, 8);
         RectInt spawnRoom = new RectInt(
             terrain.Width / 2 - firstRoomWidth / 2,
             terrain.Height / 2 - firstRoomHeight / 2,
@@ -67,19 +109,44 @@ public sealed class NecrodancerTerrainGenerator
         terrain.Rooms.Add(spawnRoom);
         CarveRoom(terrain, spawnRoom);
 
-        for (int attempts = 0; terrain.Rooms.Count < targetRooms && attempts < 450; attempts++)
+        for (int attempts = 0; terrain.Rooms.Count < targetRooms && attempts < 900; attempts++)
         {
             int roomWidth = random.Next(5, 11);
             int roomHeight = random.Next(5, 10);
             int x = random.Next(BorderSize + 1, terrain.Width - roomWidth - BorderSize);
             int y = random.Next(BorderSize + 1, terrain.Height - roomHeight - BorderSize);
             RectInt room = new RectInt(x, y, roomWidth, roomHeight);
+            int separation = attempts < 650 ? PreferredRoomSeparation : MinimumRoomSeparation;
 
-            if (OverlapsExistingRoom(room, terrain.Rooms, 2))
+            if (OverlapsExistingRoom(room, terrain.Rooms, separation))
                 continue;
 
             terrain.Rooms.Add(room);
             CarveRoom(terrain, room);
+        }
+
+        AddRequiredRoomsFromGrid(terrain, minRooms);
+    }
+
+    private void AddRequiredRoomsFromGrid(NecrodancerTerrainData terrain, int minRooms)
+    {
+        const int fallbackRoomSize = 5;
+
+        for (int y = BorderSize + 1; y <= terrain.Height - fallbackRoomSize - BorderSize; y++)
+        {
+            for (int x = BorderSize + 1; x <= terrain.Width - fallbackRoomSize - BorderSize; x++)
+            {
+                if (terrain.Rooms.Count >= minRooms)
+                    return;
+
+                RectInt room = new RectInt(x, y, fallbackRoomSize, fallbackRoomSize);
+
+                if (OverlapsExistingRoom(room, terrain.Rooms, MinimumRoomSeparation))
+                    continue;
+
+                terrain.Rooms.Add(room);
+                CarveRoom(terrain, room);
+            }
         }
     }
 
@@ -130,7 +197,7 @@ public sealed class NecrodancerTerrainGenerator
 
             for (int step = 0; step < steps; step++)
             {
-                if (IsInsidePlayableBounds(terrain, current))
+                if (room.Contains(current) && IsInsidePlayableBounds(terrain, current))
                     terrain.Tiles[current.x, current.y] = TileManager.TileType.WALKABLE;
 
                 current += GetRandomDirection(random);
@@ -153,7 +220,7 @@ public sealed class NecrodancerTerrainGenerator
         }
     }
 
-    private void PlaceEnemies(NecrodancerTerrainData terrain, System.Random random)
+    private void PlaceEnemies(NecrodancerTerrainData terrain, System.Random random, int maxEnemiesPerRoom)
     {
         for (int roomIndex = 1; roomIndex < terrain.Rooms.Count; roomIndex++)
         {
@@ -161,14 +228,18 @@ public sealed class NecrodancerTerrainGenerator
             int roomArea = room.width * room.height;
             int enemyCount = 1;
 
-            if (roomArea >= 45 && random.NextDouble() < 0.45)
+            if (roomArea >= 35)
                 enemyCount++;
-            if (roomArea >= 65 && random.NextDouble() < 0.15)
+            if (roomArea >= 55 && random.NextDouble() < 0.65)
                 enemyCount++;
+            if (roomArea >= 75 && random.NextDouble() < 0.35)
+                enemyCount++;
+            
+            enemyCount = Mathf.Min(enemyCount, maxEnemiesPerRoom);
 
             for (int i = 0; i < enemyCount; i++)
             {
-                if (terrain.EnemyPositions.Count >= 16)
+                if (terrain.EnemyPositions.Count >= 28)
                     return;
 
                 Vector2Int? enemyPosition = FindEnemyPositionInRoom(terrain, room, random);
@@ -181,7 +252,7 @@ public sealed class NecrodancerTerrainGenerator
 
     private Vector2Int? FindEnemyPositionInRoom(NecrodancerTerrainData terrain, RectInt room, System.Random random)
     {
-        for (int attempt = 0; attempt < 70; attempt++)
+        for (int attempt = 0; attempt < 120; attempt++)
         {
             Vector2Int candidate = new Vector2Int(
                 random.Next(room.xMin + 1, room.xMax - 1),
@@ -195,7 +266,7 @@ public sealed class NecrodancerTerrainGenerator
                 continue;
             if (CountWalkableNeighbors(terrain, candidate, true) < 6)
                 continue;
-            if (CountReachableWalkableTilesInRadius(terrain, candidate, 2) < 12)
+            if (CountReachableWalkableTilesInRadius(terrain, candidate, 2) < 10)
                 continue;
             if (!IsFarEnoughFromEnemies(candidate, terrain.EnemyPositions, 2))
                 continue;
@@ -206,12 +277,50 @@ public sealed class NecrodancerTerrainGenerator
         return null;
     }
 
+    private void EnsureEnemyPosition(NecrodancerTerrainData terrain)
+    {
+        if (terrain.EnemyPositions.Count > 0)
+            return;
+
+        Vector2Int? bestPosition = null;
+        int bestDistance = -1;
+
+        foreach (RectInt room in terrain.Rooms)
+        {
+            for (int x = room.xMin + 1; x < room.xMax - 1; x++)
+            {
+                for (int y = room.yMin + 1; y < room.yMax - 1; y++)
+                {
+                    Vector2Int position = new Vector2Int(x, y);
+
+                    if (!IsWalkable(terrain, position))
+                        continue;
+                    if (position == terrain.ExitPosition)
+                        continue;
+                    if (ManhattanDistance(position, terrain.PlayerSpawnPosition) <= SpawnSafeRadius + 2)
+                        continue;
+                    if (CountWalkableNeighbors(terrain, position, true) < 6)
+                        continue;
+
+                    int distance = ManhattanDistance(position, terrain.PlayerSpawnPosition);
+
+                    if (distance <= bestDistance)
+                        continue;
+
+                    bestDistance = distance;
+                    bestPosition = position;
+                }
+            }
+        }
+
+        if (bestPosition.HasValue)
+            terrain.EnemyPositions.Add(bestPosition.Value);
+    }
+
     private void PlaceBreakableWallsAndGold(NecrodancerTerrainData terrain, System.Random random)
     {
-        AddBreakableShortcuts(terrain, random, random.Next(3, 6));
-        AddHiddenGoldPockets(terrain, random, random.Next(2, 5));
-        AddGoldNearEnemies(terrain, random);
-        AddCornerGold(terrain, random, random.Next(2, 4));
+        AddHiddenGoldPockets(terrain, random, random.Next(4, 8));
+        EnforceOuterBorderWalls(terrain);
     }
 
     private void AddBreakableShortcuts(NecrodancerTerrainData terrain, System.Random random, int count)
@@ -272,6 +381,7 @@ public sealed class NecrodancerTerrainGenerator
 
             terrain.Tiles[breakableWall.x, breakableWall.y] = TileManager.TileType.BREAKABLEWALL;
             terrain.Tiles[pocket.x, pocket.y] = TileManager.TileType.WALKABLE;
+            terrain.HiddenGoldPockets.Add(new HiddenGoldPocketData(pocket, breakableWall));
             AddGoldPosition(terrain, pocket);
             count--;
         }
@@ -377,6 +487,26 @@ public sealed class NecrodancerTerrainGenerator
         return true;
     }
 
+    private int GetTerrainScore(NecrodancerTerrainData terrain, int minRooms)
+    {
+        int score = Mathf.Min(terrain.Rooms.Count, minRooms) * 10;
+
+        if (terrain.SecretRooms.Count > 0)
+            score += 30;
+        if (terrain.EnemyPositions.Count > 0)
+            score += 20;
+        if (IsWalkable(terrain, terrain.PlayerSpawnPosition))
+            score += 10;
+        if (IsWalkable(terrain, terrain.ExitPosition))
+            score += 10;
+        if (ManhattanDistance(terrain.PlayerSpawnPosition, terrain.ExitPosition) >= Mathf.Min(terrain.Width, terrain.Height) / 2)
+            score += 10;
+        if (AllGameplayTilesReachable(terrain))
+            score += 40;
+
+        return score;
+    }
+
     private bool AllGameplayTilesReachable(NecrodancerTerrainData terrain)
     {
         bool[,] visited = new bool[terrain.Width, terrain.Height];
@@ -423,7 +553,11 @@ public sealed class NecrodancerTerrainGenerator
         }
     }
 
-    private void AddSecretRooms(NecrodancerTerrainData terrain, System.Random random, int targetSecretRooms)
+    private void AddSecretRooms(
+        NecrodancerTerrainData terrain,
+        System.Random random,
+        int targetSecretRooms,
+        int minDistanceFromSpawn)
     {
         List<Vector2Int> floors = GetWalkablePositions(terrain);
         Shuffle(floors, random);
@@ -432,7 +566,7 @@ public sealed class NecrodancerTerrainGenerator
         {
             if (terrain.SecretRooms.Count >= targetSecretRooms)
                 return;
-            if (ManhattanDistance(floor, terrain.PlayerSpawnPosition) < 8)
+            if (ManhattanDistance(floor, terrain.PlayerSpawnPosition) < minDistanceFromSpawn)
                 continue;
 
             List<Vector2Int> directions = new List<Vector2Int>(CardinalDirections);
@@ -445,10 +579,14 @@ public sealed class NecrodancerTerrainGenerator
                 if (!room.HasValue)
                     continue;
 
-                Vector2Int breakableEntrance = floor + direction;
-                terrain.Tiles[breakableEntrance.x, breakableEntrance.y] = TileManager.TileType.BREAKABLEWALL;
-                terrain.SecretRooms.Add(new SecretRoomData(room.Value, breakableEntrance));
+                List<Vector2Int> entrancePositions = GetSecretRoomEntrancePositions(terrain, room.Value);
+
+                foreach (Vector2Int entrancePosition in entrancePositions)
+                    terrain.Tiles[entrancePosition.x, entrancePosition.y] = TileManager.TileType.BREAKABLEWALL;
+
+                terrain.SecretRooms.Add(new SecretRoomData(room.Value, entrancePositions));
                 CarveRoom(terrain, room.Value);
+                AddRoomWallLayers(terrain, room.Value, random, entrancePositions);
                 break;
             }
         }
@@ -463,50 +601,78 @@ public sealed class NecrodancerTerrainGenerator
         Vector2Int breakableEntrance = floor + direction;
 
         if (!IsInsidePlayableBounds(terrain, breakableEntrance) ||
-            terrain.Tiles[breakableEntrance.x, breakableEntrance.y] != TileManager.TileType.WALL)
+            !IsWallTile(terrain.Tiles[breakableEntrance.x, breakableEntrance.y]))
             return null;
 
-        int width = random.Next(4, 7);
-        int height = random.Next(4, 7);
-        RectInt room;
+        List<Vector2Int> roomSizes = new List<Vector2Int>();
 
+        for (int width = 3; width <= 6; width++)
+        {
+            for (int height = 3; height <= 6; height++)
+                roomSizes.Add(new Vector2Int(width, height));
+        }
+
+        Shuffle(roomSizes, random);
+
+        foreach (Vector2Int roomSize in roomSizes)
+        {
+            RectInt room = GetSecretRoomRect(terrain, breakableEntrance, direction, roomSize.x, roomSize.y);
+
+            if (!IsRoomInsidePlayableBounds(terrain, room))
+                continue;
+            if (OverlapsExistingRoom(room, terrain.Rooms, 1) ||
+                OverlapsExistingSecretRoom(room, terrain.SecretRooms, 1))
+                continue;
+            if (!CanHideSecretRoom(terrain, room, breakableEntrance))
+                continue;
+
+            return room;
+        }
+
+        return null;
+    }
+
+    private RectInt GetSecretRoomRect(
+        NecrodancerTerrainData terrain,
+        Vector2Int breakableEntrance,
+        Vector2Int direction,
+        int width,
+        int height)
+    {
         if (direction == Vector2Int.right)
         {
             int y = Mathf.Clamp(breakableEntrance.y - height / 2, 2, terrain.Height - height - 2);
-            room = new RectInt(breakableEntrance.x + 1, y, width, height);
+            return new RectInt(breakableEntrance.x + 1, y, width, height);
         }
-        else if (direction == Vector2Int.left)
+
+        if (direction == Vector2Int.left)
         {
             int y = Mathf.Clamp(breakableEntrance.y - height / 2, 2, terrain.Height - height - 2);
-            room = new RectInt(breakableEntrance.x - width, y, width, height);
-        }
-        else if (direction == Vector2Int.up)
-        {
-            int x = Mathf.Clamp(breakableEntrance.x - width / 2, 2, terrain.Width - width - 2);
-            room = new RectInt(x, breakableEntrance.y - height, width, height);
-        }
-        else
-        {
-            int x = Mathf.Clamp(breakableEntrance.x - width / 2, 2, terrain.Width - width - 2);
-            room = new RectInt(x, breakableEntrance.y + 1, width, height);
+            return new RectInt(breakableEntrance.x - width, y, width, height);
         }
 
-        if (!IsRoomInsidePlayableBounds(terrain, room))
-            return null;
-        if (OverlapsExistingRoom(room, terrain.Rooms, 1) ||
-            OverlapsExistingSecretRoom(room, terrain.SecretRooms, 1))
-            return null;
-        if (!SecretRoomHasSingleBreakableConnection(terrain, room, breakableEntrance))
-            return null;
+        if (direction == Vector2Int.up)
+        {
+            int x = Mathf.Clamp(breakableEntrance.x - width / 2, 2, terrain.Width - width - 2);
+            return new RectInt(x, breakableEntrance.y - height, width, height);
+        }
 
-        return room;
+        int downX = Mathf.Clamp(breakableEntrance.x - width / 2, 2, terrain.Width - width - 2);
+        return new RectInt(downX, breakableEntrance.y + 1, width, height);
     }
 
-    private bool SecretRoomHasSingleBreakableConnection(
+    private bool CanHideSecretRoom(
         NecrodancerTerrainData terrain,
         RectInt room,
         Vector2Int breakableEntrance)
     {
+        List<Vector2Int> entrancePositions = GetSecretRoomEntrancePositions(terrain, room);
+
+        if (!entrancePositions.Contains(breakableEntrance))
+            return false;
+        if (entrancePositions.Count == 0)
+            return false;
+
         for (int x = room.xMin - 1; x <= room.xMax; x++)
         {
             for (int y = room.yMin - 1; y <= room.yMax; y++)
@@ -515,14 +681,98 @@ public sealed class NecrodancerTerrainGenerator
 
                 if (!IsInsideBounds(terrain, position) || room.Contains(position))
                     continue;
-                if (position == breakableEntrance)
+                if (!HasCardinalNeighborInsideRoom(room, position))
                     continue;
-                if (terrain.Tiles[position.x, position.y] != TileManager.TileType.WALL)
+                if (entrancePositions.Contains(position))
+                    continue;
+                if (!IsWallTile(terrain.Tiles[position.x, position.y]))
                     return false;
             }
         }
 
         return true;
+    }
+
+    private List<Vector2Int> GetSecretRoomEntrancePositions(NecrodancerTerrainData terrain, RectInt room)
+    {
+        List<Vector2Int> entrancePositions = new List<Vector2Int>();
+
+        for (int x = room.xMin - 1; x <= room.xMax; x++)
+        {
+            for (int y = room.yMin - 1; y <= room.yMax; y++)
+            {
+                Vector2Int position = new Vector2Int(x, y);
+
+                if (!IsInsideBounds(terrain, position))
+                    continue;
+                if (!HasCardinalNeighborInsideRoom(room, position))
+                    continue;
+                if (!IsWallTile(terrain.Tiles[position.x, position.y]))
+                    continue;
+                if (!HasWalkableNeighborOutsideRoom(terrain, room, position))
+                    continue;
+
+                entrancePositions.Add(position);
+            }
+        }
+
+        return entrancePositions;
+    }
+
+    private void AddRoomWallLayers(
+        NecrodancerTerrainData terrain,
+        List<RectInt> rooms,
+        System.Random random)
+    {
+        foreach (RectInt room in rooms)
+            AddRoomWallLayers(terrain, room, random, null);
+    }
+
+    private void AddRoomWallLayers(
+        NecrodancerTerrainData terrain,
+        RectInt room,
+        System.Random random,
+        List<Vector2Int> forcedBreakableWalls)
+    {
+        AddRoomWallLayer(terrain, room, 1, random, true, forcedBreakableWalls);
+        AddRoomWallLayer(terrain, room, 2, random, false, null);
+    }
+
+    private void AddRoomWallLayer(
+        NecrodancerTerrainData terrain,
+        RectInt room,
+        int layer,
+        System.Random random,
+        bool allowBreakable,
+        List<Vector2Int> forcedBreakableWalls)
+    {
+        for (int x = room.xMin - layer; x < room.xMax + layer; x++)
+        {
+            for (int y = room.yMin - layer; y < room.yMax + layer; y++)
+            {
+                Vector2Int position = new Vector2Int(x, y);
+
+                if (!IsInsidePlayableBounds(terrain, position))
+                    continue;
+                if (!IsOnRoomWallLayer(room, position, layer))
+                    continue;
+                if (!IsWallTile(terrain.Tiles[x, y]))
+                    continue;
+
+                bool forceBreakable = forcedBreakableWalls != null && forcedBreakableWalls.Contains(position);
+                terrain.Tiles[x, y] = allowBreakable && (forceBreakable || random.NextDouble() < 0.4)
+                    ? TileManager.TileType.BREAKABLEWALL
+                    : TileManager.TileType.WALL;
+            }
+        }
+    }
+
+    private bool IsOnRoomWallLayer(RectInt room, Vector2Int position, int layer)
+    {
+        return position.x == room.xMin - layer ||
+               position.x == room.xMax + layer - 1 ||
+               position.y == room.yMin - layer ||
+               position.y == room.yMax + layer - 1;
     }
 
     private void CarveHorizontalCorridor(NecrodancerTerrainData terrain, int fromX, int toX, int y, int width)
@@ -646,6 +896,32 @@ public sealed class NecrodancerTerrainGenerator
         return false;
     }
 
+    private bool HasCardinalNeighborInsideRoom(RectInt room, Vector2Int position)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            if (room.Contains(position + direction))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool HasWalkableNeighborOutsideRoom(NecrodancerTerrainData terrain, RectInt room, Vector2Int position)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int neighbor = position + direction;
+
+            if (room.Contains(neighbor))
+                continue;
+            if (IsWalkable(terrain, neighbor))
+                return true;
+        }
+
+        return false;
+    }
+
     private bool OverlapsExistingSecretRoom(RectInt room, List<SecretRoomData> secretRooms, int margin)
     {
         RectInt expandedRoom = new RectInt(
@@ -690,6 +966,27 @@ public sealed class NecrodancerTerrainGenerator
     {
         if (!terrain.GoldPositions.Contains(position) && !IsOccupiedByImportantPosition(terrain, position))
             terrain.GoldPositions.Add(position);
+    }
+
+    private bool IsWallTile(TileManager.TileType tileType)
+    {
+        return tileType == TileManager.TileType.WALL ||
+               tileType == TileManager.TileType.BREAKABLEWALL;
+    }
+
+    private void EnforceOuterBorderWalls(NecrodancerTerrainData terrain)
+    {
+        for (int x = 0; x < terrain.Width; x++)
+        {
+            terrain.Tiles[x, 0] = TileManager.TileType.WALL;
+            terrain.Tiles[x, terrain.Height - 1] = TileManager.TileType.WALL;
+        }
+
+        for (int y = 0; y < terrain.Height; y++)
+        {
+            terrain.Tiles[0, y] = TileManager.TileType.WALL;
+            terrain.Tiles[terrain.Width - 1, y] = TileManager.TileType.WALL;
+        }
     }
 
     private List<Vector2Int> GetWalkablePositions(NecrodancerTerrainData terrain)
@@ -840,16 +1137,36 @@ public sealed class NecrodancerTerrainData
     public Vector2Int ExitPosition { get; set; }
     public List<Vector2Int> EnemyPositions { get; } = new List<Vector2Int>();
     public List<Vector2Int> GoldPositions { get; } = new List<Vector2Int>();
+    public List<HiddenGoldPocketData> HiddenGoldPockets { get; } = new List<HiddenGoldPocketData>();
 }
 
 public sealed class SecretRoomData
 {
     public SecretRoomData(RectInt room, Vector2Int entrancePosition)
+        : this(room, new List<Vector2Int> { entrancePosition })
+    {
+    }
+
+    public SecretRoomData(RectInt room, List<Vector2Int> entrancePositions)
     {
         Room = room;
-        EntrancePosition = entrancePosition;
+        EntrancePositions = new List<Vector2Int>(entrancePositions);
+        EntrancePosition = EntrancePositions.Count > 0 ? EntrancePositions[0] : Vector2Int.zero;
     }
 
     public RectInt Room { get; }
+    public List<Vector2Int> EntrancePositions { get; }
     public Vector2Int EntrancePosition { get; }
+}
+
+public sealed class HiddenGoldPocketData
+{
+    public HiddenGoldPocketData(Vector2Int goldPosition, Vector2Int coverEntrancePosition)
+    {
+        GoldPosition = goldPosition;
+        CoverEntrancePosition = coverEntrancePosition;
+    }
+
+    public Vector2Int GoldPosition { get; }
+    public Vector2Int CoverEntrancePosition { get; }
 }

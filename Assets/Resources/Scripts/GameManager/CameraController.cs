@@ -18,6 +18,9 @@ namespace Resources.Scripts
             instance = this;
             _originalLocalPosition = transform.localPosition;
             _originalLocalPosition.z = -15;
+
+            if (GetComponent<PlayerTorchDarknessController>() == null)
+                gameObject.AddComponent<PlayerTorchDarknessController>();
         }
 
         private void OnDisable()

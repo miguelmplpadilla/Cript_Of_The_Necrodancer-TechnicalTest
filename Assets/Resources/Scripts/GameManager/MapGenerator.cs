@@ -26,9 +26,11 @@ public class MapGenerator : MonoBehaviour
     public List<Vector2Int> enemySpawnPositions = new List<Vector2Int>();
     public List<Vector2Int> goldSpawnPositions = new List<Vector2Int>();
     public List<SecretRoomData> secretRooms = new List<SecretRoomData>();
+    public List<HiddenGoldPocketData> hiddenGoldPockets = new List<HiddenGoldPocketData>();
     public List<RectInt> generatedRooms = new List<RectInt>();
 
     public List<GameObject> enemyPrefabs = new List<GameObject>();
+    public int maxEnemiesPerRoom = 3;
     public float enemyBlockerChance = 0.35f;
     public int maxBreakableBlockersPerEncounter = 2;
     
@@ -54,7 +56,13 @@ public class MapGenerator : MonoBehaviour
     private void CreateProceduralGrid()
     {
         NecrodancerTerrainGenerator terrainGenerator = new NecrodancerTerrainGenerator();
-        NecrodancerTerrainData terrain = terrainGenerator.Generate(minMapSize, maxMapSize, minRooms, maxRooms, seed);
+        NecrodancerTerrainData terrain = terrainGenerator.Generate(
+            minMapSize,
+            maxMapSize,
+            minRooms,
+            maxRooms,
+            seed,
+            maxEnemiesPerRoom);
 
         sizeGridX = terrain.Width;
         sizeGridY = terrain.Height;
@@ -63,6 +71,7 @@ public class MapGenerator : MonoBehaviour
         enemySpawnPositions = new List<Vector2Int>(terrain.EnemyPositions);
         goldSpawnPositions = new List<Vector2Int>(terrain.GoldPositions);
         secretRooms = new List<SecretRoomData>(terrain.SecretRooms);
+        hiddenGoldPockets = new List<HiddenGoldPocketData>(terrain.HiddenGoldPockets);
         generatedRooms = new List<RectInt>(terrain.Rooms);
 
         CreateGridFromTiles(terrain.Tiles);
@@ -95,6 +104,7 @@ public class MapGenerator : MonoBehaviour
         enemySpawnPositions = new List<Vector2Int> { new Vector2Int(sizeGridX - 5, sizeGridY - 5) };
         goldSpawnPositions = new List<Vector2Int> { new Vector2Int(sizeGridX - 7, sizeGridY - 7) };
         secretRooms = new List<SecretRoomData>();
+        hiddenGoldPockets = new List<HiddenGoldPocketData>();
         generatedRooms = new List<RectInt>
         {
             new RectInt(1, 1, sizeGridX - 2, sizeGridY - 2)
@@ -226,26 +236,68 @@ public class MapGenerator : MonoBehaviour
     {
         _hiddenRoomCovers.Clear();
 
-        if (secretRooms == null || secretRooms.Count == 0)
-            return;
-
         _hiddenRoomSprite ??= CreateBlackSprite();
 
-        foreach (SecretRoomData secretRoom in secretRooms)
+        if (secretRooms != null)
         {
-            List<GameObject> covers = new List<GameObject>();
-            HashSet<Vector2Int> visibleEntranceWalls = new HashSet<Vector2Int>
+            foreach (SecretRoomData secretRoom in secretRooms)
             {
-                secretRoom.EntrancePosition
-            };
-            RectInt hiddenBounds = new RectInt(
-                secretRoom.Room.xMin - 1,
-                secretRoom.Room.yMin - 1,
-                secretRoom.Room.width + 2,
-                secretRoom.Room.height + 2);
+                List<GameObject> covers = new List<GameObject>();
+                HashSet<Vector2Int> visibleEntranceWalls = GetVisibleSecretRoomWalls(secretRoom);
+                RectInt hiddenBounds = new RectInt(
+                    secretRoom.Room.xMin - 1,
+                    secretRoom.Room.yMin - 1,
+                    secretRoom.Room.width + 2,
+                    secretRoom.Room.height + 2);
 
-            AddHiddenCoverPieces(hiddenBounds, visibleEntranceWalls, covers);
-            RegisterHiddenRoomRevealTiles(visibleEntranceWalls, covers);
+                AddHiddenCoverPieces(hiddenBounds, visibleEntranceWalls, covers);
+                RegisterHiddenRoomRevealTiles(visibleEntranceWalls, covers);
+            }
+        }
+
+        CreateHiddenGoldPocketCovers();
+    }
+
+    private HashSet<Vector2Int> GetVisibleSecretRoomWalls(SecretRoomData secretRoom)
+    {
+        HashSet<Vector2Int> visibleWalls = new HashSet<Vector2Int>(secretRoom.EntrancePositions);
+
+        for (int x = secretRoom.Room.xMin - 1; x <= secretRoom.Room.xMax; x++)
+        {
+            for (int y = secretRoom.Room.yMin - 1; y <= secretRoom.Room.yMax; y++)
+            {
+                Vector2Int position = new Vector2Int(x, y);
+                TileManager tile = GetTile(position);
+
+                if (tile == null || tile.tileType != TileManager.TileType.BREAKABLEWALL)
+                    continue;
+                if (!HasCardinalNeighborInsideRoom(secretRoom.Room, position))
+                    continue;
+                if (!HasWalkableNeighborOutsideRoom(secretRoom.Room, position))
+                    continue;
+
+                visibleWalls.Add(position);
+            }
+        }
+
+        return visibleWalls;
+    }
+
+    private void CreateHiddenGoldPocketCovers()
+    {
+        if (hiddenGoldPockets == null || hiddenGoldPockets.Count == 0)
+            return;
+
+        foreach (HiddenGoldPocketData hiddenGoldPocket in hiddenGoldPockets)
+        {
+            TileManager entranceTile = GetTile(hiddenGoldPocket.CoverEntrancePosition);
+
+            if (entranceTile == null || entranceTile.tileType != TileManager.TileType.BREAKABLEWALL)
+                continue;
+
+            List<GameObject> covers = new List<GameObject>();
+            AddHiddenCoverRect(new RectInt(hiddenGoldPocket.GoldPosition.x, hiddenGoldPocket.GoldPosition.y, 1, 1), covers);
+            _hiddenRoomCovers[hiddenGoldPocket.CoverEntrancePosition] = covers;
         }
     }
 
@@ -298,6 +350,33 @@ public class MapGenerator : MonoBehaviour
 
         TileManager tile = GetTile(position);
         return tile != null && tile.tileType == TileManager.TileType.BREAKABLEWALL;
+    }
+
+    private bool HasCardinalNeighborInsideRoom(RectInt room, Vector2Int position)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            if (room.Contains(position + direction))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool HasWalkableNeighborOutsideRoom(RectInt room, Vector2Int position)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int neighbor = position + direction;
+            TileManager tile = GetTile(neighbor);
+
+            if (room.Contains(neighbor))
+                continue;
+            if (tile != null && tile.tileType == TileManager.TileType.WALKABLE)
+                return true;
+        }
+
+        return false;
     }
 
     private void AddHiddenCoverRect(RectInt rect, List<GameObject> covers)
@@ -569,6 +648,7 @@ public class MapGenerator : MonoBehaviour
         }
 
         enemy.SetSpawnPosition(spawnPosition);
+        enemyObject.transform.position = GetWorldPosition(spawnPosition);
         enemyObject.SetActive(true);
     }
 

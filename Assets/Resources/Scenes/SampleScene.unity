@@ -691,6 +691,7 @@ GameObject:
   - component: {fileID: 519420031}
   - component: {fileID: 519420029}
   - component: {fileID: 519420033}
+  - component: {fileID: 519420034}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -787,6 +788,26 @@ MonoBehaviour:
   defaultShakeDuration: 0.15
   defaultShakeStrength: 0.18
   defaultShakeVibrations: 12
+--- !u!114 &519420034
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 519420028}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 710f6d444d6f6be4583aba23be1ede41, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  enableDarkness: 1
+  fullLightTileRadius: 2
+  litAlpha: 0
+  firstFalloffAlpha: 0.439
+  secondFalloffAlpha: 0.586
+  beatAlphaPulse: 0.1
+  darknessAlpha: 1
+  sortingOrder: 100
 --- !u!1 &528641238
 GameObject:
   m_ObjectHideFlags: 0
@@ -1477,16 +1498,16 @@ MonoBehaviour:
   enemyPrefabs:
   - {fileID: 2696799032358669449, guid: 999517dae4d41ca4e87832d167a3378c, type: 3}
   - {fileID: 2696799032358669449, guid: 97fcb4d105ea14a6486d02d780384270, type: 3}
+  - {fileID: 4730674134608899755, guid: 156c7670ab70d4146acdab7675e32fe6, type: 3}
+  - {fileID: 5218681492050442216, guid: 7977c7fe371022f4a9281b6401a67d7f, type: 3}
   - {fileID: 1694810110888865968, guid: b18c14ebe80bceb49a30b135f46ae0b0, type: 3}
   - {fileID: 1694810110888865968, guid: ffa0f77b7971643b5a7270d081a1ca15, type: 3}
+  maxEnemiesPerRoom: 5
   enemyBlockerChance: 0.35
   maxBreakableBlockersPerEncounter: 2
-  goblinPrefab: {fileID: 1694810110888865968, guid: b18c14ebe80bceb49a30b135f46ae0b0, type: 3}
-  slimePrefab: {fileID: 2696799032358669449, guid: 999517dae4d41ca4e87832d167a3378c, type: 3}
   coinDropPrefab: {fileID: 842410483017947433, guid: 3e1268dedfb397f4d96480137e9d43f0, type: 3}
   spawnGeneratedContent: 1
   removeScenePlacedEnemiesAndCoins: 1
-  maxGoblins: 3
 --- !u!4 &1900863809
 Transform:
   m_ObjectHideFlags: 0
@@ -1516,6 +1537,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   beatTimeInSeconds: 0.6
   beatsToReachCenter: 2
+  beatInputWindow: 0.25
   canRegisterPlay: 0
   lineBeatPrefab: {fileID: 1890448451953022304, guid: 06456b5674e81d149a4e34f4f5bc894c, type: 3}
   lineBeatParent: {fileID: 1812660393}
