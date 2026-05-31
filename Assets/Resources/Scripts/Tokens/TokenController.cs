@@ -19,8 +19,8 @@ namespace Resources.Scripts
         public TileManager nextTilePosition = null;
 
         public float speed = 5;
-        public int life = 3;
-        public int maxLife = 3;
+        public float life = 3;
+        public float maxLife = 3;
         
         protected virtual void Awake()
         {
@@ -34,24 +34,26 @@ namespace Resources.Scripts
                 _spriteAnimatorBaseLocalPosition = spriteAnimator.transform.localPosition;
 
             EventBus<BeatEvent>.Register(new EventBinding<BeatEvent>(() => { StartCoroutine(PlayBeat()); }, gameObject));
-        }
-
-        protected virtual void Start()
-        {
-            _currentTilePosition = MapGenerator.instance.grid[indexPosition.x, indexPosition.y];
-            transform.position = _currentTilePosition.transform.position;
-            ResetSpriteAnimatorPosition();
-            _currentTilePosition.tokenInside = this;
+            EventBus<TerrainGenerated>.Register(new EventBinding<TerrainGenerated>(TerrainGenerated, gameObject));
         }
 
         protected void OnDestroy()
         {
             EventBus<BeatEvent>.Deregister(new EventBinding<BeatEvent>(() => { StartCoroutine(PlayBeat()); }, gameObject));
+            EventBus<TerrainGenerated>.Deregister(new EventBinding<TerrainGenerated>(TerrainGenerated, gameObject));
         }
         
         protected virtual IEnumerator PlayBeat()
         {
             yield return null;
+        }
+
+        protected virtual void TerrainGenerated()
+        {
+            _currentTilePosition = MapGenerator.instance.grid[indexPosition.x, indexPosition.y];
+            transform.position = _currentTilePosition.transform.position;
+            ResetSpriteAnimatorPosition();
+            _currentTilePosition.tokenInside = this;
         }
         
         protected IEnumerator Move()
@@ -102,9 +104,6 @@ namespace Resources.Scripts
             _currentTilePosition = nextTilePosition;
             indexPosition = _nextIndexPosition;
             _isMoving = false;
-            
-            if (_currentTilePosition.tokenInside is DropBaseController coin)
-                coin.GetDropItem();
 
             _currentTilePosition.tokenInside = this;
         }
@@ -153,7 +152,7 @@ namespace Resources.Scripts
             objAnimation.transform.localPosition = finalPosition;
         }
 
-        public virtual void ChangeLife(int value)
+        public virtual void ChangeLife(float value)
         {
             life += value;
             

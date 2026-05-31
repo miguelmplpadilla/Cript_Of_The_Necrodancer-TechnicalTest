@@ -19,6 +19,7 @@ namespace Resources.Scripts
         private Sprite _shadowSprite;
         private SpriteRenderer[,] _shadowTiles;
         private Vector2Int _lastPlayerPosition = new Vector2Int(int.MinValue, int.MinValue);
+        private int _lastClosedDoorBlockerCount = -1;
         private bool _beatPulsePhase;
 
         private void Awake()
@@ -49,11 +50,13 @@ namespace Resources.Scripts
                 return;
 
             Vector2Int playerPosition = PlayerController.instance.indexPosition;
+            int closedDoorBlockerCount = MapGenerator.instance.GetClosedDoorVisionBlockerCount();
 
-            if (playerPosition == _lastPlayerPosition)
+            if (playerPosition == _lastPlayerPosition && closedDoorBlockerCount == _lastClosedDoorBlockerCount)
                 return;
 
             _lastPlayerPosition = playerPosition;
+            _lastClosedDoorBlockerCount = closedDoorBlockerCount;
             UpdateShadowAlphas();
         }
 
@@ -131,9 +134,52 @@ namespace Resources.Scripts
                     float pulseAlpha = ShouldPulseTile(tilePosition) ? beatAlphaPulse : 0f;
                     float alpha = GetAlphaForTileDistance(tileDistance, pulseAlpha);
 
+                    if (IsViewBlockedByClosedDoor(playerPosition, tilePosition))
+                        alpha = darknessAlpha;
+
                     shadowTile.color = new Color(0f, 0f, 0f, alpha);
                 }
             }
+        }
+
+        private bool IsViewBlockedByClosedDoor(Vector2Int from, Vector2Int to)
+        {
+            if (from == to)
+                return false;
+
+            int x = from.x;
+            int y = from.y;
+            int dx = Mathf.Abs(to.x - from.x);
+            int dy = Mathf.Abs(to.y - from.y);
+            int stepX = from.x < to.x ? 1 : -1;
+            int stepY = from.y < to.y ? 1 : -1;
+            int error = dx - dy;
+
+            while (x != to.x || y != to.y)
+            {
+                int doubledError = error * 2;
+
+                if (doubledError > -dy)
+                {
+                    error -= dy;
+                    x += stepX;
+                }
+
+                if (doubledError < dx)
+                {
+                    error += dx;
+                    y += stepY;
+                }
+
+                Vector2Int checkPosition = new Vector2Int(x, y);
+
+                if (checkPosition == to)
+                    return false;
+                if (MapGenerator.instance.IsClosedDoorBlockingVision(checkPosition))
+                    return true;
+            }
+
+            return false;
         }
 
         private RectInt? GetCurrentRoom(Vector2Int playerPosition)

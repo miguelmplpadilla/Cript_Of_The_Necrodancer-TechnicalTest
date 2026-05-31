@@ -184,7 +184,7 @@ MonoBehaviour:
   nextTilePosition: {fileID: 0}
   speed: 5
   life: 1
-  maxLife: 3
+  maxLife: 1
   movements: 
   indexMovement: 0
   cantCoinsDrop: 3

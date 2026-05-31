@@ -17,8 +17,8 @@ public class EnemyManager : TokenController
     {
         WAIT, MOVELEFT, MOVERIGHT, MOVEUP, MOVEDOWN
     }
-    
-    protected override void Start()
+
+    protected override void TerrainGenerated()
     {
         lifeBarEnemy = Instantiate(GameManager.instance.prefabLifeEnemy, transform)
             .GetComponent<LifeBarEnemyController>();
@@ -27,8 +27,8 @@ public class EnemyManager : TokenController
         
         if (!_hasSpawnPosition)
             indexPosition = MapGenerator.instance.GetNextEnemySpawnPosition();
-
-        base.Start();
+        
+        base.TerrainGenerated();
     }
 
     public void SetSpawnPosition(Vector2Int spawnPosition)
@@ -39,8 +39,6 @@ public class EnemyManager : TokenController
 
     protected override IEnumerator PlayBeat()
     {
-        yield return null;
-        
         if (movements == null || movements.Length == 0)
             yield break;
 
@@ -54,11 +52,28 @@ public class EnemyManager : TokenController
 
     protected IEnumerator Attack()
     {
-        yield return null;
-
         var player = GetPlayer();
         if (player != null)
             player.ChangeLife(-1);
+
+        yield break;
+    }
+
+    private IEnumerator AttackPlayerWhenReachesTile(Vector2Int playerTargetPosition)
+    {
+        float timeout = BeatController.instance != null ? BeatController.instance.beatTimeInSeconds : 1f;
+
+        while (PlayerController.instance != null &&
+               PlayerController.instance.indexPosition != playerTargetPosition &&
+               PlayerController.instance.nextTilePosition != null &&
+               timeout > 0f)
+        {
+            timeout -= Time.deltaTime;
+            yield return null;
+        }
+
+        if (PlayerController.instance != null && PlayerController.instance.indexPosition == playerTargetPosition)
+            PlayerController.instance.ChangeLife(-1);
     }
 
     private TokenController GetPlayer()
@@ -88,25 +103,38 @@ public class EnemyManager : TokenController
 
         Vector2Int provisionalIndex = indexPosition + GetSumIndex(direction);
         nextTilePosition = MapGenerator.instance.GetNextTile(provisionalIndex);
-
-        transform.localScale = new Vector3(provisionalIndex.x > indexPosition.x ? 1 : -1, 1, 1);
-
-        if (nextTilePosition == null || 
-            nextTilePosition.tileType == TileManager.TileType.BREAKABLEWALL)
+        
+        if (nextTilePosition == null) yield break;
+        if (nextTilePosition.tileType != TileManager.TileType.WALKABLE)
         {
-            StartCoroutine(PlayBeat());
+            nextTilePosition = null;
             yield break;
         }
 
+        transform.localScale = new Vector3(provisionalIndex.x > indexPosition.x ? 1 : -1, 1, 1);
 
-        if (nextTilePosition == PlayerController.instance.nextTilePosition ||
-            nextTilePosition?.tokenInside is PlayerController)
+        if (nextTilePosition == PlayerController.instance.nextTilePosition)
         {
+            nextTilePosition = null;
+            yield return AttackPlayerWhenReachesTile(provisionalIndex);
+            yield break;
+        }
+
+        if (nextTilePosition?.tokenInside is PlayerController)
+        {
+            nextTilePosition = null;
             yield return Attack();
             yield break;
         }
 
+        if (nextTilePosition.tokenInside != null)
+        {
+            nextTilePosition = null;
+            yield break;
+        }
+
         _nextIndexPosition = provisionalIndex;
+        nextTilePosition.tokenInside = this;
 
         yield return Move();
     }
@@ -129,7 +157,7 @@ public class EnemyManager : TokenController
     protected override void CheckLife()
     {
         if (life <= 0)
-            GameManager.instance.CreateCoinDrop(cantCoinsDrop, _currentTilePosition);
+            GameManager.instance.CreateDrop(cantCoinsDrop, GameManager.instance.globalPrefabCoinDrop, _currentTilePosition);
         base.CheckLife();
     }
 

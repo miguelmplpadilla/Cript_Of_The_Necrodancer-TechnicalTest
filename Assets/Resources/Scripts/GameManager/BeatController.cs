@@ -23,7 +23,7 @@ namespace Resources.Scripts
 
         public GameObject heart;
 
-        private bool beatPlayed = false;
+        public bool beatPlayed = false;
 
         private void Awake()
         {

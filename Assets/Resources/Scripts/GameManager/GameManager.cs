@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections;
+﻿using System.Collections;
 using Resources.Scripts.Drops;
 using TMPro;
 using UnityEngine;
@@ -21,12 +20,14 @@ namespace Resources.Scripts
         public TextMeshProUGUI multiplierText;
 
         public Image lifeBarPlayer;
+        public GameObject panelBomb;
 
-        public GameObject prefabCoinDrop;
-        
-        private Coroutine _shakeCoroutine;
+        public GameObject globalPrefabCoinDrop;
+        public GameObject globalPrefabBombDrop;
 
         public GameObject prefabLifeEnemy;
+
+        public bool hasBomb = false;
 
         private void Awake()
         {
@@ -35,7 +36,8 @@ namespace Resources.Scripts
 
         private void LateUpdate()
         {
-            lifeBarPlayer.fillAmount = (float)PlayerController.instance.life / PlayerController.instance.maxLife;
+            lifeBarPlayer.fillAmount = PlayerController.instance.life / PlayerController.instance.maxLife;
+            panelBomb.SetActive(hasBomb);
         }
 
         public void SumCoins(int cantCoinsSum)
@@ -113,7 +115,6 @@ namespace Resources.Scripts
             if (duration <= 0f || strength <= 0f)
             {
                 target.transform.localPosition = originalLocalPosition;
-                _shakeCoroutine = null;
                 yield break;
             }
 
@@ -143,34 +144,27 @@ namespace Resources.Scripts
             }
 
             target.transform.localPosition = originalLocalPosition;
-            _shakeCoroutine = null;
         }
 
-        public void CreateCoinDrop(int amountCoins, TileManager parentTile)
+        public DropBaseController CreateDrop(int amount, GameObject prefab, TileManager parentTile)
         {
-            GameObject coinPrefab = prefabCoinDrop != null
-                ? prefabCoinDrop
-                : MapGenerator.instance?.coinDropPrefab;
-
-            if (coinPrefab == null)
-            {
-                Debug.LogWarning("No coin drop prefab assigned.");
-                return;
-            }
+            GameObject coinPrefab = prefab;
 
             GameObject coinObject = Instantiate(coinPrefab);
-            CoinDropController coinDrop = coinObject.GetComponent<CoinDropController>();
+            DropBaseController drop = coinObject.GetComponent<DropBaseController>();
 
-            if (coinDrop == null)
+            if (drop == null)
             {
                 Debug.LogWarning($"{coinPrefab.name} does not have a CoinDropController component.");
                 Destroy(coinObject);
-                return;
+                return null;
             }
 
-            coinDrop.cantCoins = amountCoins;
-            coinDrop.AssignToTile(parentTile);
-            coinDrop.gameObject.SetActive(true);
+            drop.cantValue = amount;
+            drop.AssignToTile(parentTile);
+            drop.gameObject.SetActive(true);
+
+            return drop;
         }
     }
 }

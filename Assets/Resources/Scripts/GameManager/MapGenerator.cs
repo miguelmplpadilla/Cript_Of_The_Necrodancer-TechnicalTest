@@ -25,16 +25,20 @@ public class MapGenerator : MonoBehaviour
     public Vector2Int exitPosition;
     public List<Vector2Int> enemySpawnPositions = new List<Vector2Int>();
     public List<Vector2Int> goldSpawnPositions = new List<Vector2Int>();
+    public List<DoorSpawnData> doorSpawnPositions = new List<DoorSpawnData>();
     public List<SecretRoomData> secretRooms = new List<SecretRoomData>();
     public List<HiddenGoldPocketData> hiddenGoldPockets = new List<HiddenGoldPocketData>();
     public List<RectInt> generatedRooms = new List<RectInt>();
 
     public List<GameObject> enemyPrefabs = new List<GameObject>();
+    public GameObject normalChestPrefab;
+    public GameObject doorPrefab;
+    public int maxNormalChestsInMap = 2;
+    
     public int maxEnemiesPerRoom = 3;
     public float enemyBlockerChance = 0.35f;
     public int maxBreakableBlockersPerEncounter = 2;
     
-    public GameObject coinDropPrefab;
     public bool spawnGeneratedContent = true;
     public bool removeScenePlacedEnemiesAndCoins = true;
 
@@ -46,7 +50,10 @@ public class MapGenerator : MonoBehaviour
     private void Awake()
     {
         instance = this;
+    }
 
+    private void Start()
+    {
         if (useProceduralTerrain)
             CreateProceduralGrid();
         else
@@ -70,6 +77,7 @@ public class MapGenerator : MonoBehaviour
         exitPosition = terrain.ExitPosition;
         enemySpawnPositions = new List<Vector2Int>(terrain.EnemyPositions);
         goldSpawnPositions = new List<Vector2Int>(terrain.GoldPositions);
+        doorSpawnPositions = new List<DoorSpawnData>(terrain.DoorPositions);
         secretRooms = new List<SecretRoomData>(terrain.SecretRooms);
         hiddenGoldPockets = new List<HiddenGoldPocketData>(terrain.HiddenGoldPockets);
         generatedRooms = new List<RectInt>(terrain.Rooms);
@@ -77,10 +85,15 @@ public class MapGenerator : MonoBehaviour
         CreateGridFromTiles(terrain.Tiles);
         CreateHiddenRoomCovers();
         SpawnGeneratedContent();
+        
+        EventBus<TerrainGenerated>.Raise(new TerrainGenerated());
     }
 
     private void CreateTestGrid()
     {
+        sizeGridX = Mathf.Max(sizeGridX, 24);
+        sizeGridY = Mathf.Max(sizeGridY, 16);
+
         TileManager.TileType[,] tiles = new TileManager.TileType[sizeGridX, sizeGridY];
 
         for (int x = 0; x < sizeGridX; x++)
@@ -88,10 +101,7 @@ public class MapGenerator : MonoBehaviour
             for (int y = 0; y < sizeGridY; y++)
             {
                 TileManager.TileType typeTile = TileManager.TileType.WALKABLE;
-                
-                if (x == 1 || x == sizeGridX - 2 || y == 1 || y == sizeGridY - 2)
-                    typeTile = TileManager.TileType.BREAKABLEWALL;
-                
+
                 if (x == 0 || x == sizeGridX-1 || y == 0 || y == sizeGridY-1) 
                     typeTile = TileManager.TileType.WALL;
 
@@ -99,18 +109,69 @@ public class MapGenerator : MonoBehaviour
             }
         }
 
-        playerSpawnPosition = new Vector2Int(sizeGridX / 2, sizeGridY / 2);
-        exitPosition = new Vector2Int(sizeGridX - 3, sizeGridY - 3);
-        enemySpawnPositions = new List<Vector2Int> { new Vector2Int(sizeGridX - 5, sizeGridY - 5) };
-        goldSpawnPositions = new List<Vector2Int> { new Vector2Int(sizeGridX - 7, sizeGridY - 7) };
+        AddTestBreakableWalls(tiles);
+
+        playerSpawnPosition = new Vector2Int(3, sizeGridY / 2);
+        exitPosition = new Vector2Int(sizeGridX - 3, sizeGridY / 2);
+        enemySpawnPositions = GetTestEnemySpawnPositions();
+        goldSpawnPositions = new List<Vector2Int>
+        {
+            new Vector2Int(4, 3),
+            new Vector2Int(5, 3),
+            new Vector2Int(6, 3),
+            new Vector2Int(sizeGridX - 6, sizeGridY - 4),
+            new Vector2Int(sizeGridX - 5, sizeGridY - 4)
+        };
         secretRooms = new List<SecretRoomData>();
+        doorSpawnPositions = new List<DoorSpawnData>
+        {
+            new DoorSpawnData(new Vector2Int(sizeGridX / 2, sizeGridY / 2), true)
+        };
         hiddenGoldPockets = new List<HiddenGoldPocketData>();
         generatedRooms = new List<RectInt>
         {
             new RectInt(1, 1, sizeGridX - 2, sizeGridY - 2)
         };
         CreateGridFromTiles(tiles);
-        SpawnGeneratedContent();
+        SpawnTestContent();
+
+        EventBus<TerrainGenerated>.Raise(new TerrainGenerated());
+    }
+
+    private void AddTestBreakableWalls(TileManager.TileType[,] tiles)
+    {
+        int centerY = sizeGridY / 2;
+        int centerX = sizeGridX / 2;
+
+        for (int y = 3; y < sizeGridY - 3; y++)
+        {
+            if (y == centerY)
+                continue;
+
+            tiles[centerX, y] = TileManager.TileType.BREAKABLEWALL;
+        }
+
+        for (int x = centerX + 3; x < sizeGridX - 4; x++)
+        {
+            if (x % 2 == 0)
+                tiles[x, 4] = TileManager.TileType.BREAKABLEWALL;
+        }
+    }
+
+    private List<Vector2Int> GetTestEnemySpawnPositions()
+    {
+        List<Vector2Int> positions = new List<Vector2Int>();
+        int startX = sizeGridX - 8;
+        int startY = 3;
+
+        for (int i = 0; i < enemyPrefabs.Count; i++)
+        {
+            int row = i / 3;
+            int column = i % 3;
+            positions.Add(new Vector2Int(startX + column * 2, startY + row * 3));
+        }
+
+        return positions;
     }
 
     private void CreateGridFromTiles(TileManager.TileType[,] tiles)
@@ -416,6 +477,42 @@ public class MapGenerator : MonoBehaviour
         return grid[index.x, index.y];
     }
 
+    public bool IsClosedDoorBlockingVision(Vector2Int index)
+    {
+        TileManager tile = GetTile(index);
+
+        return tile?.tokenInside is DoorController door && !IsDoorOpen(door);
+    }
+
+    public int GetClosedDoorVisionBlockerCount()
+    {
+        if (grid == null)
+            return 0;
+
+        int count = 0;
+
+        for (int x = 0; x < sizeGridX; x++)
+        {
+            for (int y = 0; y < sizeGridY; y++)
+            {
+                if (IsClosedDoorBlockingVision(new Vector2Int(x, y)))
+                    count++;
+            }
+        }
+
+        return count;
+    }
+
+    private bool IsDoorOpen(DoorController door)
+    {
+        if (door == null)
+            return true;
+        if (door.spriteRenderer == null || door.openDoorSprite == null)
+            return false;
+
+        return door.spriteRenderer.sprite == door.openDoorSprite;
+    }
+
     private void SpawnGeneratedContent()
     {
         if (!spawnGeneratedContent)
@@ -423,10 +520,214 @@ public class MapGenerator : MonoBehaviour
 
         EnemyManager[] sceneEnemies = FindObjectsOfType<EnemyManager>(true);
         CoinDropController[] sceneCoins = FindObjectsOfType<CoinDropController>(true);
+        ChestController[] sceneChests = FindObjectsOfType<ChestController>(true);
+        DoorController[] sceneDoors = FindObjectsOfType<DoorController>(true);
 
+        SpawnDoors();
         SpawnGold();
+        SpawnNormalChests();
         SpawnEnemies();
-        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins);
+        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins, sceneChests, sceneDoors);
+    }
+
+    private void SpawnTestContent()
+    {
+        if (!spawnGeneratedContent)
+            return;
+
+        EnemyManager[] sceneEnemies = FindObjectsOfType<EnemyManager>(true);
+        CoinDropController[] sceneCoins = FindObjectsOfType<CoinDropController>(true);
+        ChestController[] sceneChests = FindObjectsOfType<ChestController>(true);
+        DoorController[] sceneDoors = FindObjectsOfType<DoorController>(true);
+
+        SpawnDoors();
+        SpawnGold();
+        SpawnTestChests();
+        SpawnTestEnemies();
+        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins, sceneChests, sceneDoors);
+    }
+
+    private void SpawnDoors()
+    {
+        if (doorPrefab == null || doorSpawnPositions == null)
+            return;
+
+        foreach (DoorSpawnData doorSpawnPosition in doorSpawnPositions)
+            SpawnDoor(doorSpawnPosition);
+    }
+
+    private void SpawnDoor(DoorSpawnData doorSpawnPosition)
+    {
+        TileManager tile = GetTile(doorSpawnPosition.Position);
+
+        if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+            return;
+
+        GameObject doorObject = Instantiate(doorPrefab, transform);
+        DoorController door = doorObject.GetComponent<DoorController>();
+
+        if (door == null)
+        {
+            Debug.LogWarning($"{doorPrefab.name} does not have a DoorController component.");
+            Destroy(doorObject);
+            return;
+        }
+
+        doorObject.transform.rotation = Quaternion.Euler(0f, 0f, doorSpawnPosition.IsHorizontal ? -90f : 0f);
+        door.AssignToTile(tile);
+        doorObject.SetActive(true);
+    }
+
+    private void SpawnTestEnemies()
+    {
+        for (int i = 0; i < enemyPrefabs.Count && i < enemySpawnPositions.Count; i++)
+        {
+            if (enemyPrefabs[i] == null)
+                continue;
+
+            SpawnEnemy(enemyPrefabs[i], enemySpawnPositions[i]);
+        }
+    }
+
+    private void SpawnTestChests()
+    {
+        if (normalChestPrefab == null)
+        {
+            Debug.LogWarning("No chest prefab assigned in MapGenerator.normalChestPrefab.");
+            return;
+        }
+
+        Vector2Int[] chestPositions =
+        {
+            new Vector2Int(sizeGridX / 2 + 2, sizeGridY - 4),
+            new Vector2Int(sizeGridX / 2 + 5, sizeGridY - 4)
+        };
+
+        int chestsToSpawn = Mathf.Min(maxNormalChestsInMap, chestPositions.Length);
+
+        for (int i = 0; i < chestsToSpawn; i++)
+            SpawnChest(normalChestPrefab, chestPositions[i]);
+    }
+
+    private void SpawnChest(GameObject chestPrefab, Vector2Int spawnPosition)
+    {
+        TileManager tile = GetTile(spawnPosition);
+
+        if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+            return;
+
+        GameObject chestObject = Instantiate(chestPrefab, transform);
+        ChestController chest = chestObject.GetComponent<ChestController>();
+
+        if (chest == null)
+        {
+            Debug.LogWarning($"{chestPrefab.name} does not have a ChestController component.");
+            Destroy(chestObject);
+            return;
+        }
+
+        chest.AssignToTile(tile);
+        chestObject.SetActive(true);
+    }
+
+    private void SpawnNormalChests()
+    {
+        if (normalChestPrefab == null || maxNormalChestsInMap <= 0)
+            return;
+
+        List<Vector2Int> chestCandidates = GetNormalChestCandidates();
+        System.Random random = new System.Random(seed == 0 ? Environment.TickCount : seed + 15485863);
+        Shuffle(chestCandidates, random);
+
+        int chestsToSpawn = Mathf.Min(maxNormalChestsInMap, chestCandidates.Count);
+
+        for (int i = 0; i < chestsToSpawn; i++)
+            SpawnNormalChest(chestCandidates[i]);
+
+        if (chestsToSpawn < maxNormalChestsInMap)
+            SpawnFallbackNormalChests(maxNormalChestsInMap - chestsToSpawn, chestCandidates);
+    }
+
+    private List<Vector2Int> GetNormalChestCandidates()
+    {
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        for (int roomIndex = 0; roomIndex < generatedRooms.Count; roomIndex++)
+        {
+            RectInt room = generatedRooms[roomIndex];
+
+            for (int x = room.xMin + 1; x < room.xMax - 1; x++)
+            {
+                for (int y = room.yMin + 1; y < room.yMax - 1; y++)
+                {
+                    Vector2Int candidate = new Vector2Int(x, y);
+
+                    if (!IsValidNormalChestPosition(candidate))
+                        continue;
+
+                    candidates.Add(candidate);
+                }
+            }
+        }
+
+        return candidates;
+    }
+
+    private void SpawnFallbackNormalChests(int count, List<Vector2Int> usedPositions)
+    {
+        if (count <= 0)
+            return;
+
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        for (int x = 1; x < sizeGridX - 1; x++)
+        {
+            for (int y = 1; y < sizeGridY - 1; y++)
+            {
+                Vector2Int candidate = new Vector2Int(x, y);
+
+                if (usedPositions.Contains(candidate))
+                    continue;
+                if (!IsValidNormalChestPosition(candidate))
+                    continue;
+
+                candidates.Add(candidate);
+            }
+        }
+
+        System.Random random = new System.Random(seed == 0 ? Environment.TickCount + 17 : seed + 32452843);
+        Shuffle(candidates, random);
+
+        int chestsToSpawn = Mathf.Min(count, candidates.Count);
+
+        for (int i = 0; i < chestsToSpawn; i++)
+            SpawnNormalChest(candidates[i]);
+    }
+
+    private bool IsValidNormalChestPosition(Vector2Int position)
+    {
+        TileManager tile = GetTile(position);
+
+        if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+            return false;
+        if (position == playerSpawnPosition || position == exitPosition)
+            return false;
+        if (enemySpawnPositions.Contains(position) || goldSpawnPositions.Contains(position))
+            return false;
+        if (CountWalkableNeighborTiles(position) < 2)
+            return false;
+
+        return true;
+    }
+
+    private void SpawnNormalChest(Vector2Int spawnPosition)
+    {
+        TileManager tile = GetTile(spawnPosition);
+
+        if (tile == null || tile.tokenInside != null)
+            return;
+
+        SpawnChest(normalChestPrefab, spawnPosition);
     }
 
     private void SpawnEnemies()
@@ -704,14 +1005,11 @@ public class MapGenerator : MonoBehaviour
 
     private void SpawnGold()
     {
-        if (coinDropPrefab == null)
+        if (GameManager.instance.globalPrefabCoinDrop == null)
         {
             Debug.LogWarning("No coin drop prefab assigned in MapGenerator.");
             return;
         }
-
-        if (GameManager.instance != null)
-            GameManager.instance.prefabCoinDrop = coinDropPrefab;
 
         foreach (Vector2Int goldPosition in goldSpawnPositions)
         {
@@ -720,12 +1018,12 @@ public class MapGenerator : MonoBehaviour
             if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
                 continue;
 
-            GameObject coinObject = Instantiate(coinDropPrefab, transform);
+            GameObject coinObject = Instantiate(GameManager.instance.globalPrefabCoinDrop, transform);
             CoinDropController coinDrop = coinObject.GetComponent<CoinDropController>();
 
             if (coinDrop == null)
             {
-                Debug.LogWarning($"{coinDropPrefab.name} does not have a CoinDropController component.");
+                Debug.LogWarning($"{GameManager.instance.globalPrefabCoinDrop.name} does not have a CoinDropController component.");
                 Destroy(coinObject);
                 continue;
             }
@@ -735,7 +1033,11 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    private void CleanupScenePlacedGeneratedContent(EnemyManager[] sceneEnemies, CoinDropController[] sceneCoins)
+    private void CleanupScenePlacedGeneratedContent(
+        EnemyManager[] sceneEnemies,
+        CoinDropController[] sceneCoins,
+        ChestController[] sceneChests,
+        DoorController[] sceneDoors)
     {
         if (!removeScenePlacedEnemiesAndCoins)
             return;
@@ -751,10 +1053,32 @@ public class MapGenerator : MonoBehaviour
             if (coin == null)
                 continue;
 
-            if (coin.gameObject == coinDropPrefab)
+            if (coin.gameObject == GameManager.instance.globalPrefabCoinDrop)
                 coin.gameObject.SetActive(false);
             else
                 Destroy(coin.gameObject);
+        }
+
+        foreach (ChestController chest in sceneChests)
+        {
+            if (chest == null)
+                continue;
+
+            if (chest.gameObject == normalChestPrefab)
+                chest.gameObject.SetActive(false);
+            else
+                Destroy(chest.gameObject);
+        }
+
+        foreach (DoorController door in sceneDoors)
+        {
+            if (door == null)
+                continue;
+
+            if (door.gameObject == doorPrefab)
+                door.gameObject.SetActive(false);
+            else
+                Destroy(door.gameObject);
         }
     }
 }
@@ -766,3 +1090,5 @@ public class TileData
     public GameObject prefabTile;
     public Sprite spriteTile;
 }
+
+public class TerrainGenerated : IEvent {}

@@ -10,6 +10,7 @@ public sealed class NecrodancerTerrainGenerator
     private const int MaxGenerationAttempts = 80;
     private const int PreferredRoomSeparation = 4;
     private const int MinimumRoomSeparation = 2;
+    private const double RoomWallBreakableChance = 0.75;
 
     public NecrodancerTerrainData Generate(
         int minMapSize,
@@ -164,22 +165,83 @@ public sealed class NecrodancerTerrainGenerator
             Vector2Int from = GetRoomCenter(fromRoom);
             Vector2Int to = GetRoomCenter(toRoom);
             int corridorWidth = random.NextDouble() < 0.35 ? 2 : 1;
+            bool canPlaceDoor = corridorWidth == 1 && random.NextDouble() < 0.55;
 
             if (random.NextDouble() < 0.5)
             {
                 CarveHorizontalCorridor(terrain, from.x, to.x, from.y, corridorWidth);
                 CarveVerticalCorridor(terrain, from.y, to.y, to.x, corridorWidth);
+
+                if (canPlaceDoor)
+                    TryAddDoorOnCorridor(terrain, from.x, to.x, from.y, true, random);
             }
             else
             {
                 CarveVerticalCorridor(terrain, from.y, to.y, from.x, corridorWidth);
                 CarveHorizontalCorridor(terrain, from.x, to.x, to.y, corridorWidth);
+
+                if (canPlaceDoor)
+                    TryAddDoorOnCorridor(terrain, from.y, to.y, from.x, false, random);
             }
 
             CarveOpenPatch(terrain, to, 1);
             connectedRooms.Add(toRoom);
             remainingRooms.RemoveAt(nearestIndex);
         }
+    }
+
+    private void TryAddDoorOnCorridor(
+        NecrodancerTerrainData terrain,
+        int from,
+        int to,
+        int fixedAxis,
+        bool isHorizontal,
+        System.Random random)
+    {
+        List<Vector2Int> candidates = new List<Vector2Int>();
+        int start = Mathf.Min(from, to);
+        int end = Mathf.Max(from, to);
+
+        for (int value = start + 2; value <= end - 2; value++)
+        {
+            Vector2Int position = isHorizontal
+                ? new Vector2Int(value, fixedAxis)
+                : new Vector2Int(fixedAxis, value);
+
+            if (!IsValidDoorPosition(terrain, position, isHorizontal))
+                continue;
+
+            candidates.Add(position);
+        }
+
+        if (candidates.Count == 0)
+            return;
+
+        terrain.DoorPositions.Add(new DoorSpawnData(candidates[random.Next(candidates.Count)], isHorizontal));
+    }
+
+    private bool IsValidDoorPosition(NecrodancerTerrainData terrain, Vector2Int position, bool isHorizontal)
+    {
+        if (!IsWalkable(terrain, position))
+            return false;
+        if (IsInsideAnyRoom(terrain, position))
+            return false;
+        if (IsOccupiedByImportantPosition(terrain, position))
+            return false;
+
+        foreach (DoorSpawnData doorPosition in terrain.DoorPositions)
+        {
+            if (ManhattanDistance(doorPosition.Position, position) < 5)
+                return false;
+        }
+
+        Vector2Int forward = isHorizontal ? new Vector2Int(1, 0) : new Vector2Int(0, 1);
+        Vector2Int side = isHorizontal ? new Vector2Int(0, 1) : new Vector2Int(1, 0);
+
+        return IsWalkable(terrain, position - forward) &&
+               IsWalkable(terrain, position + forward) &&
+               !IsWalkable(terrain, position - side) &&
+               !IsWalkable(terrain, position + side);
     }
 
     private void AddIrregularOpenZones(NecrodancerTerrainData terrain, System.Random random)
@@ -734,8 +796,8 @@ public sealed class NecrodancerTerrainGenerator
         System.Random random,
         List<Vector2Int> forcedBreakableWalls)
     {
-        AddRoomWallLayer(terrain, room, 1, random, true, forcedBreakableWalls);
         AddRoomWallLayer(terrain, room, 2, random, false, null);
+        AddRoomWallLayer(terrain, room, 1, random, true, forcedBreakableWalls);
     }
 
     private void AddRoomWallLayer(
@@ -760,11 +822,31 @@ public sealed class NecrodancerTerrainGenerator
                     continue;
 
                 bool forceBreakable = forcedBreakableWalls != null && forcedBreakableWalls.Contains(position);
-                terrain.Tiles[x, y] = allowBreakable && (forceBreakable || random.NextDouble() < 0.4)
+                bool canBeBreakable = forceBreakable || IsRoomWallBackedByNormalWall(terrain, room, position);
+
+                terrain.Tiles[x, y] = allowBreakable && canBeBreakable && (forceBreakable || random.NextDouble() < RoomWallBreakableChance)
                     ? TileManager.TileType.BREAKABLEWALL
                     : TileManager.TileType.WALL;
             }
         }
+    }
+
+    private bool IsRoomWallBackedByNormalWall(NecrodancerTerrainData terrain, RectInt room, Vector2Int wallPosition)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int insidePosition = wallPosition + direction;
+
+            if (!room.Contains(insidePosition))
+                continue;
+
+            Vector2Int backedPosition = wallPosition - direction;
+
+            return IsInsideBounds(terrain, backedPosition) &&
+                   terrain.Tiles[backedPosition.x, backedPosition.y] == TileManager.TileType.WALL;
+        }
+
+        return false;
     }
 
     private bool IsOnRoomWallLayer(RectInt room, Vector2Int position, int layer)
@@ -894,6 +976,17 @@ public sealed class NecrodancerTerrainGenerator
         }
 
         return false;
+    }
+
+    private bool IsInsideAnyRoom(NecrodancerTerrainData terrain, Vector2Int position)
+    {
+        foreach (RectInt room in terrain.Rooms)
+        {
+            if (room.Contains(position))
+                return true;
+        }
+
+        return IsInsideSecretRoom(terrain, position);
     }
 
     private bool HasCardinalNeighborInsideRoom(RectInt room, Vector2Int position)
@@ -1137,7 +1230,20 @@ public sealed class NecrodancerTerrainData
     public Vector2Int ExitPosition { get; set; }
     public List<Vector2Int> EnemyPositions { get; } = new List<Vector2Int>();
     public List<Vector2Int> GoldPositions { get; } = new List<Vector2Int>();
+    public List<DoorSpawnData> DoorPositions { get; } = new List<DoorSpawnData>();
     public List<HiddenGoldPocketData> HiddenGoldPockets { get; } = new List<HiddenGoldPocketData>();
+}
+
+public sealed class DoorSpawnData
+{
+    public DoorSpawnData(Vector2Int position, bool isHorizontal)
+    {
+        Position = position;
+        IsHorizontal = isHorizontal;
+    }
+
+    public Vector2Int Position { get; }
+    public bool IsHorizontal { get; }
 }
 
 public sealed class SecretRoomData

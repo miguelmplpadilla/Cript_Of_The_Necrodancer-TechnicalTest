@@ -1,5 +1,7 @@
 using System.Collections;
 using Resources.Scripts;
+using Resources.Scripts.Drops;
+using Resources.Scripts.Drops.OpenType;
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody2D))]
@@ -10,6 +12,8 @@ public class PlayerController : TokenController
     private ActionType _actionType = ActionType.MOVE;
 
     private KeyCode lastInput;
+
+    public GameObject imageHit;
     
     private KeyCode[] directionKeys =
     {
@@ -31,10 +35,10 @@ public class PlayerController : TokenController
         instance = this;
     }
 
-    protected override void Start()
+    protected override void TerrainGenerated()
     {
         indexPosition = MapGenerator.instance.playerSpawnPosition;
-        base.Start();
+        base.TerrainGenerated();
     }
 
     private void Update()
@@ -43,6 +47,17 @@ public class PlayerController : TokenController
         {
             foreach (var key in directionKeys)
                 if (Input.GetKeyDown(key)) GameManager.instance.RestartMultiplier();
+            return;
+        }
+
+        if (Input.GetKey(KeyCode.DownArrow) && Input.GetKey(KeyCode.LeftArrow) && GameManager.instance.hasBomb)
+        {
+            BombDropController bomb =
+                GameManager.instance.CreateDrop(1, GameManager.instance.globalPrefabBombDrop, _currentTilePosition) as
+                    BombDropController;
+            bomb.currentTile.tokenInside = this;
+            if (bomb != null) bomb.PlayAnimationExplode();
+            GameManager.instance.hasBomb = false;
             return;
         }
         
@@ -61,7 +76,8 @@ public class PlayerController : TokenController
             if (nextTilePosition.tokenInside != null && nextTilePosition.tokenInside is EnemyManager)
                 _actionType = ActionType.ATTACK;
 
-            EventBus<BeatEvent>.Raise(new BeatEvent());
+            if (!BeatController.instance.beatPlayed) 
+                EventBus<BeatEvent>.Raise(new BeatEvent());
         }
     }
 
@@ -80,6 +96,11 @@ public class PlayerController : TokenController
         switch (_actionType)
         {
             case ActionType.MOVE:
+                if (nextTilePosition.tokenInside is DropBaseController dropBaseController)
+                {
+                    StartCoroutine(dropBaseController.GetDropItem());
+                    if (dropBaseController is OpenDropController) break;
+                }
                 yield return Move();
                 break;
             case ActionType.DIG:
@@ -107,14 +128,31 @@ public class PlayerController : TokenController
         CameraController.instance.ShakeCamera(0.1f, 0.1f);
     }
 
-    public override void ChangeLife(int value)
+    public override void ChangeLife(float value)
     {
         base.ChangeLife(value);
-        if (value < 0) GameManager.instance.RestartMultiplier();
+        if (value < 0)
+        {
+            CameraController.instance.ShakeCamera(0.1f, 0.08f);
+            GameManager.instance.RestartMultiplier();
+            StartCoroutine(AnimationHit());
+        }
+    }
+
+    private IEnumerator AnimationHit()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            imageHit.SetActive(true);
+            yield return new WaitForSeconds(0.05f);
+            imageHit.SetActive(false);
+            yield return new WaitForSeconds(0.05f);
+        }
     }
 
     protected override void CheckLife()
     {
+        if (life > 0) return;
         Debug.Log("Player killed");
     }
 
