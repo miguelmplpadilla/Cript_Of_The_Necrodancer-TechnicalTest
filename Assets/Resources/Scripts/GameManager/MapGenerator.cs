@@ -25,6 +25,7 @@ public class MapGenerator : MonoBehaviour
     public Vector2Int exitPosition;
     public List<Vector2Int> enemySpawnPositions = new List<Vector2Int>();
     public List<Vector2Int> goldSpawnPositions = new List<Vector2Int>();
+    public List<Vector2Int> chestSpawnPositions = new List<Vector2Int>();
     public List<DoorSpawnData> doorSpawnPositions = new List<DoorSpawnData>();
     public List<SecretRoomData> secretRooms = new List<SecretRoomData>();
     public List<HiddenGoldPocketData> hiddenGoldPockets = new List<HiddenGoldPocketData>();
@@ -33,6 +34,8 @@ public class MapGenerator : MonoBehaviour
     public List<GameObject> enemyPrefabs = new List<GameObject>();
     public GameObject normalChestPrefab;
     public GameObject doorPrefab;
+    public GameObject stairsPrefab;
+    
     public int maxNormalChestsInMap = 2;
     
     public int maxEnemiesPerRoom = 3;
@@ -77,6 +80,7 @@ public class MapGenerator : MonoBehaviour
         exitPosition = terrain.ExitPosition;
         enemySpawnPositions = new List<Vector2Int>(terrain.EnemyPositions);
         goldSpawnPositions = new List<Vector2Int>(terrain.GoldPositions);
+        chestSpawnPositions = new List<Vector2Int>(terrain.ChestPositions);
         doorSpawnPositions = new List<DoorSpawnData>(terrain.DoorPositions);
         secretRooms = new List<SecretRoomData>(terrain.SecretRooms);
         hiddenGoldPockets = new List<HiddenGoldPocketData>(terrain.HiddenGoldPockets);
@@ -122,6 +126,7 @@ public class MapGenerator : MonoBehaviour
             new Vector2Int(sizeGridX - 6, sizeGridY - 4),
             new Vector2Int(sizeGridX - 5, sizeGridY - 4)
         };
+        chestSpawnPositions = new List<Vector2Int>();
         secretRooms = new List<SecretRoomData>();
         doorSpawnPositions = new List<DoorSpawnData>
         {
@@ -258,7 +263,7 @@ public class MapGenerator : MonoBehaviour
 
             TileManager tile = GetNextTile(spawnPosition);
 
-            if (tile != null && tile.tileType == TileManager.TileType.WALKABLE && tile.tokenInside == null)
+            if (tile != null && tile.CanPlaceGeneratedContent())
                 return tile;
         }
 
@@ -305,13 +310,14 @@ public class MapGenerator : MonoBehaviour
             {
                 List<GameObject> covers = new List<GameObject>();
                 HashSet<Vector2Int> visibleEntranceWalls = GetVisibleSecretRoomWalls(secretRoom);
+                HashSet<Vector2Int> visibleCoverTiles = GetVisibleSecretRoomCoverTiles(secretRoom, visibleEntranceWalls);
                 RectInt hiddenBounds = new RectInt(
                     secretRoom.Room.xMin - 1,
                     secretRoom.Room.yMin - 1,
                     secretRoom.Room.width + 2,
                     secretRoom.Room.height + 2);
 
-                AddHiddenCoverPieces(hiddenBounds, visibleEntranceWalls, covers);
+                AddHiddenCoverPieces(hiddenBounds, visibleCoverTiles, covers);
                 RegisterHiddenRoomRevealTiles(visibleEntranceWalls, covers);
             }
         }
@@ -343,6 +349,35 @@ public class MapGenerator : MonoBehaviour
 
         return visibleWalls;
     }
+
+    private HashSet<Vector2Int> GetVisibleSecretRoomCoverTiles(
+        SecretRoomData secretRoom,
+        HashSet<Vector2Int> visibleEntranceWalls)
+    {
+        HashSet<Vector2Int> visibleTiles = new HashSet<Vector2Int>(visibleEntranceWalls);
+
+        for (int x = secretRoom.Room.xMin - 1; x <= secretRoom.Room.xMax; x++)
+        {
+            for (int y = secretRoom.Room.yMin - 1; y <= secretRoom.Room.yMax; y++)
+            {
+                Vector2Int position = new Vector2Int(x, y);
+                TileManager tile = GetTile(position);
+
+                if (tile == null || secretRoom.Room.Contains(position))
+                    continue;
+                if (tile.tileType != TileManager.TileType.WALL &&
+                    tile.tileType != TileManager.TileType.BREAKABLEWALL)
+                    continue;
+                if (!HasWalkableNeighborOutsideRoom(secretRoom.Room, position))
+                    continue;
+
+                visibleTiles.Add(position);
+            }
+        }
+
+        return visibleTiles;
+    }
+
 
     private void CreateHiddenGoldPocketCovers()
     {
@@ -387,7 +422,7 @@ public class MapGenerator : MonoBehaviour
 
     private void AddHiddenCoverPieces(
         RectInt hiddenBounds,
-        HashSet<Vector2Int> visibleEntranceWalls,
+        HashSet<Vector2Int> visibleCoverTiles,
         List<GameObject> covers)
     {
         for (int x = hiddenBounds.xMin; x < hiddenBounds.xMax; x++)
@@ -396,7 +431,7 @@ public class MapGenerator : MonoBehaviour
             {
                 Vector2Int position = new Vector2Int(x, y);
 
-                if (IsVisibleEntranceWall(position, visibleEntranceWalls))
+                if (IsVisibleCoverTile(position, visibleCoverTiles))
                     continue;
 
                 AddHiddenCoverRect(new RectInt(x, y, 1, 1), covers);
@@ -404,13 +439,15 @@ public class MapGenerator : MonoBehaviour
         }
     }
 
-    private bool IsVisibleEntranceWall(Vector2Int position, HashSet<Vector2Int> visibleEntranceWalls)
+    private bool IsVisibleCoverTile(Vector2Int position, HashSet<Vector2Int> visibleCoverTiles)
     {
-        if (!visibleEntranceWalls.Contains(position))
+        if (!visibleCoverTiles.Contains(position))
             return false;
 
         TileManager tile = GetTile(position);
-        return tile != null && tile.tileType == TileManager.TileType.BREAKABLEWALL;
+        return tile != null &&
+               (tile.tileType == TileManager.TileType.WALL ||
+                tile.tileType == TileManager.TileType.BREAKABLEWALL);
     }
 
     private bool HasCardinalNeighborInsideRoom(RectInt room, Vector2Int position)
@@ -481,7 +518,7 @@ public class MapGenerator : MonoBehaviour
     {
         TileManager tile = GetTile(index);
 
-        return tile?.tokenInside is DoorController door && !IsDoorOpen(door);
+        return tile?.dropInside is DoorController door && !IsDoorOpen(door);
     }
 
     public int GetClosedDoorVisionBlockerCount()
@@ -522,12 +559,15 @@ public class MapGenerator : MonoBehaviour
         CoinDropController[] sceneCoins = FindObjectsOfType<CoinDropController>(true);
         ChestController[] sceneChests = FindObjectsOfType<ChestController>(true);
         DoorController[] sceneDoors = FindObjectsOfType<DoorController>(true);
+        StairsLevelController[] sceneStairs = FindObjectsOfType<StairsLevelController>(true);
 
         SpawnDoors();
+        SpawnStairs();
         SpawnGold();
+        SpawnFixedChests();
         SpawnNormalChests();
         SpawnEnemies();
-        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins, sceneChests, sceneDoors);
+        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins, sceneChests, sceneDoors, sceneStairs);
     }
 
     private void SpawnTestContent()
@@ -539,12 +579,15 @@ public class MapGenerator : MonoBehaviour
         CoinDropController[] sceneCoins = FindObjectsOfType<CoinDropController>(true);
         ChestController[] sceneChests = FindObjectsOfType<ChestController>(true);
         DoorController[] sceneDoors = FindObjectsOfType<DoorController>(true);
+        StairsLevelController[] sceneStairs = FindObjectsOfType<StairsLevelController>(true);
 
         SpawnDoors();
+        SpawnStairs();
         SpawnGold();
+        SpawnFixedChests();
         SpawnTestChests();
         SpawnTestEnemies();
-        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins, sceneChests, sceneDoors);
+        CleanupScenePlacedGeneratedContent(sceneEnemies, sceneCoins, sceneChests, sceneDoors, sceneStairs);
     }
 
     private void SpawnDoors()
@@ -560,7 +603,7 @@ public class MapGenerator : MonoBehaviour
     {
         TileManager tile = GetTile(doorSpawnPosition.Position);
 
-        if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+        if (tile == null || !tile.CanPlaceGeneratedContent())
             return;
 
         GameObject doorObject = Instantiate(doorPrefab, transform);
@@ -576,6 +619,176 @@ public class MapGenerator : MonoBehaviour
         doorObject.transform.rotation = Quaternion.Euler(0f, 0f, doorSpawnPosition.IsHorizontal ? -90f : 0f);
         door.AssignToTile(tile);
         doorObject.SetActive(true);
+    }
+
+    private void SpawnStairs()
+    {
+        if (stairsPrefab == null)
+        {
+            Debug.LogWarning("No stairs prefab assigned in MapGenerator.stairsPrefab.");
+            return;
+        }
+
+        Vector2Int spawnPosition = GetStairsSpawnPosition();
+        TileManager tile = GetTile(spawnPosition);
+
+        if (tile == null || !tile.CanPlaceGeneratedContent())
+        {
+            Debug.LogWarning($"Could not spawn stairs at {spawnPosition}.");
+            return;
+        }
+
+        GameObject stairsObject = Instantiate(stairsPrefab, transform);
+        StairsLevelController stairs = stairsObject.GetComponent<StairsLevelController>();
+
+        if (stairs == null)
+        {
+            Debug.LogWarning($"{stairsPrefab.name} does not have a StairsLevelController component.");
+            Destroy(stairsObject);
+            return;
+        }
+
+        stairs.AssignToTile(tile);
+        stairsObject.SetActive(true);
+    }
+
+    private Vector2Int GetStairsSpawnPosition()
+    {
+        Vector2Int bestPosition = exitPosition;
+        int bestDistance = -1;
+        int[,] distances = GetWalkableDistancesFrom(playerSpawnPosition);
+
+        for (int x = 0; x < sizeGridX; x++)
+        {
+            for (int y = 0; y < sizeGridY; y++)
+            {
+                Vector2Int candidate = new Vector2Int(x, y);
+
+                if (!IsValidStairsPosition(candidate))
+                    continue;
+
+                int distance = distances[x, y];
+
+                if (distance < 0)
+                    continue;
+
+                if (distance > bestDistance ||
+                    distance == bestDistance &&
+                    GetManhattanDistance(playerSpawnPosition, candidate) > GetManhattanDistance(playerSpawnPosition, bestPosition))
+                {
+                    bestDistance = distance;
+                    bestPosition = candidate;
+                }
+            }
+        }
+
+        if (bestDistance >= 0)
+            return bestPosition;
+
+        bestDistance = -1;
+
+        for (int x = 0; x < sizeGridX; x++)
+        {
+            for (int y = 0; y < sizeGridY; y++)
+            {
+                Vector2Int candidate = new Vector2Int(x, y);
+
+                if (!IsValidStairsPosition(candidate))
+                    continue;
+
+                int distance = GetManhattanDistance(playerSpawnPosition, candidate);
+
+                if (distance > bestDistance)
+                {
+                    bestDistance = distance;
+                    bestPosition = candidate;
+                }
+            }
+        }
+
+        return bestPosition;
+    }
+
+    private int[,] GetWalkableDistancesFrom(Vector2Int startPosition)
+    {
+        int[,] distances = new int[sizeGridX, sizeGridY];
+
+        for (int x = 0; x < sizeGridX; x++)
+        {
+            for (int y = 0; y < sizeGridY; y++)
+                distances[x, y] = -1;
+        }
+
+        TileManager startTile = GetTile(startPosition);
+
+        if (startTile == null || startTile.tileType != TileManager.TileType.WALKABLE)
+            return distances;
+
+        Queue<Vector2Int> pendingTiles = new Queue<Vector2Int>();
+        distances[startPosition.x, startPosition.y] = 0;
+        pendingTiles.Enqueue(startPosition);
+
+        while (pendingTiles.Count > 0)
+        {
+            Vector2Int current = pendingTiles.Dequeue();
+
+            foreach (Vector2Int direction in CardinalDirections)
+            {
+                Vector2Int next = current + direction;
+                TileManager nextTile = GetTile(next);
+
+                if (nextTile == null || nextTile.tileType != TileManager.TileType.WALKABLE)
+                    continue;
+                if (distances[next.x, next.y] >= 0)
+                    continue;
+
+                distances[next.x, next.y] = distances[current.x, current.y] + 1;
+                pendingTiles.Enqueue(next);
+            }
+        }
+
+        return distances;
+    }
+
+    private RectInt? GetFarthestRoomFromPlayer()
+    {
+        if (generatedRooms == null || generatedRooms.Count == 0)
+            return null;
+
+        RectInt farthestRoom = generatedRooms[0];
+        int bestDistance = -1;
+
+        foreach (RectInt room in generatedRooms)
+        {
+            int distance = GetManhattanDistance(playerSpawnPosition, GetRoomCenter(room));
+
+            if (distance > bestDistance)
+            {
+                bestDistance = distance;
+                farthestRoom = room;
+            }
+        }
+
+        return farthestRoom;
+    }
+
+    private Vector2Int GetRoomCenter(RectInt room)
+    {
+        return new Vector2Int(room.xMin + room.width / 2, room.yMin + room.height / 2);
+    }
+
+    private int GetManhattanDistance(Vector2Int a, Vector2Int b)
+    {
+        return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
+    }
+
+    private bool IsValidStairsPosition(Vector2Int position)
+    {
+        TileManager tile = GetTile(position);
+
+        return tile != null &&
+               tile.CanPlaceGeneratedContent() &&
+               position != playerSpawnPosition;
     }
 
     private void SpawnTestEnemies()
@@ -613,7 +826,7 @@ public class MapGenerator : MonoBehaviour
     {
         TileManager tile = GetTile(spawnPosition);
 
-        if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+        if (tile == null || !tile.CanPlaceGeneratedContent())
             return;
 
         GameObject chestObject = Instantiate(chestPrefab, transform);
@@ -628,6 +841,15 @@ public class MapGenerator : MonoBehaviour
 
         chest.AssignToTile(tile);
         chestObject.SetActive(true);
+    }
+
+    private void SpawnFixedChests()
+    {
+        if (normalChestPrefab == null || chestSpawnPositions == null)
+            return;
+
+        foreach (Vector2Int chestSpawnPosition in chestSpawnPositions)
+            SpawnChest(normalChestPrefab, chestSpawnPosition);
     }
 
     private void SpawnNormalChests()
@@ -708,11 +930,15 @@ public class MapGenerator : MonoBehaviour
     {
         TileManager tile = GetTile(position);
 
-        if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+        if (tile == null || !tile.CanPlaceGeneratedContent())
             return false;
         if (position == playerSpawnPosition || position == exitPosition)
             return false;
-        if (enemySpawnPositions.Contains(position) || goldSpawnPositions.Contains(position))
+        if (enemySpawnPositions.Contains(position) ||
+            goldSpawnPositions.Contains(position) ||
+            chestSpawnPositions.Contains(position))
+            return false;
+        if (IsInsideSecretRoom(position))
             return false;
         if (CountWalkableNeighborTiles(position) < 2)
             return false;
@@ -724,10 +950,24 @@ public class MapGenerator : MonoBehaviour
     {
         TileManager tile = GetTile(spawnPosition);
 
-        if (tile == null || tile.tokenInside != null)
+        if (tile == null || !tile.CanPlaceGeneratedContent())
             return;
 
         SpawnChest(normalChestPrefab, spawnPosition);
+    }
+
+    private bool IsInsideSecretRoom(Vector2Int position)
+    {
+        if (secretRooms == null)
+            return false;
+
+        foreach (SecretRoomData secretRoom in secretRooms)
+        {
+            if (secretRoom.Room.Contains(position))
+                return true;
+        }
+
+        return false;
     }
 
     private void SpawnEnemies()
@@ -758,10 +998,7 @@ public class MapGenerator : MonoBehaviour
         }
 
         foreach (Vector2Int enemyPosition in unassignedPositions)
-        {
-            int enemyTier = ChooseEnemyPrefabTier(0f, 0, 1, random);
-            SpawnEnemy(GetEnemyPrefabByTier(enemyTier), enemyPosition);
-        }
+            SpawnEnemy(GetCorridorEnemyPrefab(random), enemyPosition);
     }
 
     private List<Vector2Int> TakeEnemyPositionsInRoom(
@@ -858,7 +1095,7 @@ public class MapGenerator : MonoBehaviour
             {
                 TileManager tile = GetTile(candidate);
 
-                if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+                if (tile == null || !tile.CanPlaceGeneratedContent())
                     continue;
 
                 tile.SetTileType(TileManager.TileType.BREAKABLEWALL);
@@ -911,7 +1148,7 @@ public class MapGenerator : MonoBehaviour
 
             TileManager tile = GetTile(position);
 
-            if (tile != null && tile.tileType == TileManager.TileType.WALKABLE && tile.tokenInside == null)
+            if (tile != null && tile.CanPlaceGeneratedContent())
                 freeMoves++;
         }
 
@@ -938,6 +1175,14 @@ public class MapGenerator : MonoBehaviour
         if (prefab == null)
             return;
 
+        if (spawnPosition == playerSpawnPosition)
+            return;
+
+        TileManager tile = GetTile(spawnPosition);
+
+        if (tile == null || !tile.CanPlaceGeneratedContent())
+            return;
+
         GameObject enemyObject = Instantiate(prefab, transform);
         EnemyManager enemy = enemyObject.GetComponent<EnemyManager>();
 
@@ -950,6 +1195,7 @@ public class MapGenerator : MonoBehaviour
 
         enemy.SetSpawnPosition(spawnPosition);
         enemyObject.transform.position = GetWorldPosition(spawnPosition);
+        tile.tokenInside = enemy;
         enemyObject.SetActive(true);
     }
 
@@ -984,6 +1230,23 @@ public class MapGenerator : MonoBehaviour
         return null;
     }
 
+    private GameObject GetCorridorEnemyPrefab(System.Random random)
+    {
+        List<GameObject> corridorPrefabs = new List<GameObject>();
+        int maxCorridorEnemyIndex = Mathf.Min(2, enemyPrefabs.Count - 1);
+
+        for (int i = 0; i <= maxCorridorEnemyIndex; i++)
+        {
+            if (enemyPrefabs[i] != null)
+                corridorPrefabs.Add(enemyPrefabs[i]);
+        }
+
+        if (corridorPrefabs.Count == 0)
+            return null;
+
+        return corridorPrefabs[random.Next(corridorPrefabs.Count)];
+    }
+
     private void Shuffle<T>(List<T> list, System.Random random)
     {
         for (int i = list.Count - 1; i > 0; i--)
@@ -1013,9 +1276,12 @@ public class MapGenerator : MonoBehaviour
 
         foreach (Vector2Int goldPosition in goldSpawnPositions)
         {
+            if (goldPosition == playerSpawnPosition || goldPosition == exitPosition)
+                continue;
+
             TileManager tile = GetNextTile(goldPosition);
 
-            if (tile == null || tile.tileType != TileManager.TileType.WALKABLE || tile.tokenInside != null)
+            if (tile == null || !tile.CanPlaceGeneratedContent())
                 continue;
 
             GameObject coinObject = Instantiate(GameManager.instance.globalPrefabCoinDrop, transform);
@@ -1037,7 +1303,8 @@ public class MapGenerator : MonoBehaviour
         EnemyManager[] sceneEnemies,
         CoinDropController[] sceneCoins,
         ChestController[] sceneChests,
-        DoorController[] sceneDoors)
+        DoorController[] sceneDoors,
+        StairsLevelController[] sceneStairs)
     {
         if (!removeScenePlacedEnemiesAndCoins)
             return;
@@ -1079,6 +1346,17 @@ public class MapGenerator : MonoBehaviour
                 door.gameObject.SetActive(false);
             else
                 Destroy(door.gameObject);
+        }
+
+        foreach (StairsLevelController stairs in sceneStairs)
+        {
+            if (stairs == null)
+                continue;
+
+            if (stairs.gameObject == stairsPrefab)
+                stairs.gameObject.SetActive(false);
+            else
+                Destroy(stairs.gameObject);
         }
     }
 }

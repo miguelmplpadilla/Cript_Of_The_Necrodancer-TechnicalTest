@@ -7,11 +7,22 @@ public class DoorController : OpenDropController
     public SpriteRenderer spriteRenderer;
     
     public Sprite openDoorSprite;
+    private bool _isOpen;
     
     public override IEnumerator GetDropItem()
     {
+        if (_isOpen)
+            yield break;
+
+        _isOpen = true;
         spriteRenderer.sprite = openDoorSprite;
-        currentTile.tokenInside = null;
+
+        if (currentTile != null && currentTile.dropInside == this)
+            currentTile.dropInside = null;
+
+        if (currentTile != null && currentTile.tokenInside == this)
+            currentTile.tokenInside = null;
+
         yield break;
     }
 }

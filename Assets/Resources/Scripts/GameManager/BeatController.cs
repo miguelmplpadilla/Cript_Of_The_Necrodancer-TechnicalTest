@@ -42,7 +42,7 @@ namespace Resources.Scripts
             timer += Time.deltaTime;
 
             canRegisterPlay = timer <= beatInputWindow ||
-                              timer >= beatTimeInSeconds - beatInputWindow;
+                              timer >= beatTimeInSeconds - 0.1f;
 
             while (timer >= beatTimeInSeconds)
             {

@@ -10,15 +10,20 @@ namespace Resources.Scripts.Drops
         public Animator animator;
 
         private int countBeat = 0;
+        private EventBinding<BeatEvent> _beatBinding;
 
         private void Start()
         {
-            EventBus<BeatEvent>.Register(new EventBinding<BeatEvent>(PlayBeat, gameObject));
+            _beatBinding = new EventBinding<BeatEvent>(PlayBeat, gameObject);
+            EventBus<BeatEvent>.Register(_beatBinding);
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
-            EventBus<BeatEvent>.Deregister(new EventBinding<BeatEvent>(PlayBeat, gameObject));
+            if (_beatBinding != null)
+                EventBus<BeatEvent>.Deregister(_beatBinding);
+
+            base.OnDestroy();
         }
 
         public override IEnumerator GetDropItem()
@@ -55,7 +60,7 @@ namespace Resources.Scripts.Drops
             for (int i = 0; i < directions.Length; i++)
             {
                 TileManager tile = MapGenerator.instance.GetNextTile(currentTile.indexPosition + directions[i]);
-                if (tile.tokenInside != null && tile.tokenInside is TokenController token)
+                if (tile != null && tile.tokenInside is TokenController token)
                     token.ChangeLife(-4);
             }
         }

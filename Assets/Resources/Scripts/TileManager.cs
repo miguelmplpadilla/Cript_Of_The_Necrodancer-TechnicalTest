@@ -16,6 +16,21 @@ namespace Resources.Scripts
         }
 
         public MonoBehaviour tokenInside;
+        public MonoBehaviour dropInside;
+
+        public bool HasToken => tokenInside != null;
+        public bool HasDrop => dropInside != null;
+        public bool HasAnyOccupant => HasToken || HasDrop;
+
+        public bool CanPlaceDrop()
+        {
+            return tileType == TileType.WALKABLE && !HasDrop;
+        }
+
+        public bool CanPlaceGeneratedContent()
+        {
+            return tileType == TileType.WALKABLE && !HasAnyOccupant;
+        }
 
         private void Awake()
         {

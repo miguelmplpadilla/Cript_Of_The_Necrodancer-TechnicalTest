@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using Resources.Scripts;
 using Resources.Scripts.Drops;
@@ -35,6 +36,11 @@ public class PlayerController : TokenController
         instance = this;
     }
 
+    private void Start()
+    {
+        life = PlayerPrefs.GetFloat("playerLife", maxLife);
+    }
+
     protected override void TerrainGenerated()
     {
         indexPosition = MapGenerator.instance.playerSpawnPosition;
@@ -55,9 +61,13 @@ public class PlayerController : TokenController
             BombDropController bomb =
                 GameManager.instance.CreateDrop(1, GameManager.instance.globalPrefabBombDrop, _currentTilePosition) as
                     BombDropController;
-            bomb.currentTile.tokenInside = this;
-            if (bomb != null) bomb.PlayAnimationExplode();
-            GameManager.instance.hasBomb = false;
+
+            if (bomb != null)
+            {
+                bomb.PlayAnimationExplode();
+                GameManager.instance.hasBomb = false;
+            }
+
             return;
         }
         
@@ -96,12 +106,13 @@ public class PlayerController : TokenController
         switch (_actionType)
         {
             case ActionType.MOVE:
-                if (nextTilePosition.tokenInside is DropBaseController dropBaseController)
-                {
-                    StartCoroutine(dropBaseController.GetDropItem());
-                    if (dropBaseController is OpenDropController) break;
-                }
-                yield return Move();
+                var dropInside = nextTilePosition.dropInside as DropBaseController;
+
+                if (dropInside == null || dropInside is not OpenDropController)
+                    yield return Move();
+                
+                if (dropInside != null)
+                    StartCoroutine(dropInside.GetDropItem());
                 break;
             case ActionType.DIG:
                 Dig();
@@ -123,6 +134,8 @@ public class PlayerController : TokenController
     private void Attack()
     {
         if (nextTilePosition?.tokenInside is not EnemyManager enemy) return;
+        
+        CreateHit(nextTilePosition.indexPosition - indexPosition);
 
         enemy.ChangeLife(-1);
         CameraController.instance.ShakeCamera(0.1f, 0.1f);
@@ -153,7 +166,7 @@ public class PlayerController : TokenController
     protected override void CheckLife()
     {
         if (life > 0) return;
-        Debug.Log("Player killed");
+        RestartController.instance.OpenRestartLevel();
     }
 
     private void TryMove(KeyCode key, int x, int y)

@@ -7,6 +7,8 @@ namespace Resources.Scripts
     {
         private Rigidbody2D rb;
         private Vector3 _spriteAnimatorBaseLocalPosition;
+        private EventBinding<BeatEvent> _beatBinding;
+        private EventBinding<TerrainGenerated> _terrainGeneratedBinding;
     
         protected bool _isMoving = false;
 
@@ -33,14 +35,26 @@ namespace Resources.Scripts
             if (spriteAnimator != null)
                 _spriteAnimatorBaseLocalPosition = spriteAnimator.transform.localPosition;
 
-            EventBus<BeatEvent>.Register(new EventBinding<BeatEvent>(() => { StartCoroutine(PlayBeat()); }, gameObject));
-            EventBus<TerrainGenerated>.Register(new EventBinding<TerrainGenerated>(TerrainGenerated, gameObject));
+            _beatBinding = new EventBinding<BeatEvent>(() => { StartCoroutine(PlayBeat()); }, gameObject);
+            _terrainGeneratedBinding = new EventBinding<TerrainGenerated>(TerrainGenerated, gameObject);
+
+            EventBus<BeatEvent>.Register(_beatBinding);
+            EventBus<TerrainGenerated>.Register(_terrainGeneratedBinding);
         }
 
         protected void OnDestroy()
         {
-            EventBus<BeatEvent>.Deregister(new EventBinding<BeatEvent>(() => { StartCoroutine(PlayBeat()); }, gameObject));
-            EventBus<TerrainGenerated>.Deregister(new EventBinding<TerrainGenerated>(TerrainGenerated, gameObject));
+            if (_beatBinding != null)
+                EventBus<BeatEvent>.Deregister(_beatBinding);
+
+            if (_terrainGeneratedBinding != null)
+                EventBus<TerrainGenerated>.Deregister(_terrainGeneratedBinding);
+
+            if (_currentTilePosition != null && _currentTilePosition.tokenInside == this)
+                _currentTilePosition.tokenInside = null;
+
+            if (nextTilePosition != null && nextTilePosition.tokenInside == this)
+                nextTilePosition.tokenInside = null;
         }
         
         protected virtual IEnumerator PlayBeat()
@@ -171,6 +185,28 @@ namespace Resources.Scripts
         protected virtual void PrintLife()
         {
             Debug.Log("Life: "+life);
+        }
+
+        protected void CreateHit(Vector2Int direction)
+        {
+            float zRotation = 0f;
+
+            if (direction.x > 0)
+                zRotation = 0f;      // derecha
+            else if (direction.x < 0)
+                zRotation = 180f;    // izquierda
+            else if (direction.y < 0)
+                zRotation = 90f;     // abajo
+            else if (direction.y > 0)
+                zRotation = -90f;    // arriba
+            
+            TileManager hitTile = MapGenerator.instance.GetNextTile(indexPosition + direction);
+            if (hitTile == null)
+                return;
+
+            GameObject hit = Instantiate(GameManager.instance.globalPrefabHit);
+            hit.transform.position = hitTile.transform.position;
+            hit.transform.rotation = Quaternion.Euler(0f, 0f, zRotation);
         }
     }
 }

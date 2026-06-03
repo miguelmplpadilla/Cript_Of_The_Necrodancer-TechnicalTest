@@ -1,7 +1,8 @@
-﻿using System.Collections;
-using Resources.Scripts.Drops;
+﻿using System;
+using System.Collections;
 using TMPro;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using Random = UnityEngine.Random;
 
@@ -24,14 +25,29 @@ namespace Resources.Scripts
 
         public GameObject globalPrefabCoinDrop;
         public GameObject globalPrefabBombDrop;
+        public GameObject globalPrefabHit;
 
         public GameObject prefabLifeEnemy;
 
+        public Image imageTransition;
+        public GameObject pausePanel;
+
         public bool hasBomb = false;
+        public bool isPaused = false;
 
         private void Awake()
         {
             instance = this;
+        }
+
+        private void Start()
+        {
+            StartCoroutine(StartGame());
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.Escape)) PauseGame();
         }
 
         private void LateUpdate()
@@ -43,6 +59,7 @@ namespace Resources.Scripts
         public void SumCoins(int cantCoinsSum)
         {
             cantPlayerCoins += cantCoinsSum * coinsMultiplier;
+            PlayerPrefs.SetInt("cantCoins", cantPlayerCoins);
             
             PrintCoins();
         }
@@ -148,23 +165,82 @@ namespace Resources.Scripts
 
         public DropBaseController CreateDrop(int amount, GameObject prefab, TileManager parentTile)
         {
-            GameObject coinPrefab = prefab;
+            if (prefab == null || parentTile == null)
+                return null;
 
-            GameObject coinObject = Instantiate(coinPrefab);
-            DropBaseController drop = coinObject.GetComponent<DropBaseController>();
+            if (!parentTile.CanPlaceDrop())
+            {
+                Debug.LogWarning($"Cannot create drop {prefab.name} at {parentTile.indexPosition}: tile already has a drop.");
+                return null;
+            }
+
+            GameObject dropObject = Instantiate(prefab);
+            DropBaseController drop = dropObject.GetComponent<DropBaseController>();
 
             if (drop == null)
             {
-                Debug.LogWarning($"{coinPrefab.name} does not have a CoinDropController component.");
-                Destroy(coinObject);
+                Debug.LogWarning($"{prefab.name} does not have a DropBaseController component.");
+                Destroy(dropObject);
                 return null;
             }
 
             drop.cantValue = amount;
-            drop.AssignToTile(parentTile);
+
+            if (!drop.AssignToTile(parentTile))
+            {
+                Destroy(dropObject);
+                return null;
+            }
+
             drop.gameObject.SetActive(true);
 
             return drop;
+        }
+
+        public IEnumerator StartGame()
+        {
+            Time.timeScale = 1;
+            yield return FadeImage(imageTransition, 1, 0, 1);
+        }
+
+        public IEnumerator RestartLevel(bool sumLevel)
+        {
+            if (sumLevel)
+                PlayerPrefs.SetInt("cantLevels", PlayerPrefs.GetInt("cantLevels", 0) + 1);
+            
+            Time.timeScale = 0;
+            yield return FadeImage(imageTransition, 0, 1, 1);
+            SceneManager.LoadScene("Game");
+        }
+
+        private void PauseGame()
+        {
+            isPaused = !isPaused;
+            pausePanel.SetActive(isPaused);
+            Time.timeScale = isPaused ? 0 : 1;
+        }
+
+        public IEnumerator FadeImage(Image imageFade, float startFade, float endFade, float duration)
+        {
+            float elapsed = 0f;
+            
+            Color colorImage = imageFade.color;
+            colorImage.a = startFade;
+            imageFade.color = colorImage;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = elapsed / duration;
+                
+                colorImage.a = Mathf.Lerp(startFade, endFade, t);
+                imageFade.color = colorImage;
+
+                yield return null;
+            }
+
+            colorImage.a = endFade;
+            imageFade.color = colorImage;
         }
     }
 }

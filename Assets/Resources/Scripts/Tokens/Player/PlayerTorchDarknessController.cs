@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Resources.Scripts
@@ -21,6 +22,7 @@ namespace Resources.Scripts
         private Vector2Int _lastPlayerPosition = new Vector2Int(int.MinValue, int.MinValue);
         private int _lastClosedDoorBlockerCount = -1;
         private bool _beatPulsePhase;
+        private bool[,] _visibleThroughOpenArea;
 
         private void Awake()
         {
@@ -117,6 +119,7 @@ namespace Resources.Scripts
 
             Vector2Int playerPosition = PlayerController.instance.indexPosition;
             RectInt? currentRoom = GetCurrentRoom(playerPosition);
+            _visibleThroughOpenArea = GetVisibleAreaFromPlayer(playerPosition);
 
             for (int x = 0; x < _shadowTiles.GetLength(0); x++)
             {
@@ -128,13 +131,9 @@ namespace Resources.Scripts
                         continue;
 
                     Vector2Int tilePosition = new Vector2Int(x, y);
-                    int tileDistance = currentRoom.HasValue
-                        ? GetDistanceFromRoom(tilePosition, currentRoom.Value)
-                        : GetDistanceFromPlayer(tilePosition, playerPosition);
-                    float pulseAlpha = ShouldPulseTile(tilePosition) ? beatAlphaPulse : 0f;
-                    float alpha = GetAlphaForTileDistance(tileDistance, pulseAlpha);
+                    float alpha = GetAlphaForTile(tilePosition, playerPosition, currentRoom);
 
-                    if (IsViewBlockedByClosedDoor(playerPosition, tilePosition))
+                    if (!IsVisibleThroughOpenArea(tilePosition))
                         alpha = darknessAlpha;
 
                     shadowTile.color = new Color(0f, 0f, 0f, alpha);
@@ -142,40 +141,74 @@ namespace Resources.Scripts
             }
         }
 
-        private bool IsViewBlockedByClosedDoor(Vector2Int from, Vector2Int to)
+        private bool[,] GetVisibleAreaFromPlayer(Vector2Int playerPosition)
         {
-            if (from == to)
-                return false;
+            int width = MapGenerator.instance.sizeGridX;
+            int height = MapGenerator.instance.sizeGridY;
+            bool[,] visibleArea = new bool[width, height];
+            Queue<Vector2Int> pending = new Queue<Vector2Int>();
 
-            int x = from.x;
-            int y = from.y;
-            int dx = Mathf.Abs(to.x - from.x);
-            int dy = Mathf.Abs(to.y - from.y);
-            int stepX = from.x < to.x ? 1 : -1;
-            int stepY = from.y < to.y ? 1 : -1;
-            int error = dx - dy;
+            if (!CanFloodFillThrough(playerPosition))
+                return visibleArea;
 
-            while (x != to.x || y != to.y)
+            visibleArea[playerPosition.x, playerPosition.y] = true;
+            pending.Enqueue(playerPosition);
+
+            while (pending.Count > 0)
             {
-                int doubledError = error * 2;
+                Vector2Int current = pending.Dequeue();
 
-                if (doubledError > -dy)
+                foreach (Vector2Int direction in CardinalDirections)
                 {
-                    error -= dy;
-                    x += stepX;
+                    Vector2Int next = current + direction;
+
+                    if (next.x < 0 || next.y < 0 || next.x >= width || next.y >= height)
+                        continue;
+                    if (visibleArea[next.x, next.y])
+                        continue;
+                    if (!CanFloodFillThrough(next))
+                        continue;
+
+                    visibleArea[next.x, next.y] = true;
+                    pending.Enqueue(next);
                 }
+            }
 
-                if (doubledError < dx)
-                {
-                    error += dx;
-                    y += stepY;
-                }
+            return visibleArea;
+        }
 
-                Vector2Int checkPosition = new Vector2Int(x, y);
+        private bool CanFloodFillThrough(Vector2Int position)
+        {
+            TileManager tile = MapGenerator.instance.GetNextTile(position);
 
-                if (checkPosition == to)
-                    return false;
-                if (MapGenerator.instance.IsClosedDoorBlockingVision(checkPosition))
+            return tile != null &&
+                   tile.tileType == TileManager.TileType.WALKABLE &&
+                   !MapGenerator.instance.IsClosedDoorBlockingVision(position);
+        }
+
+        private bool IsVisibleThroughOpenArea(Vector2Int tilePosition)
+        {
+            if (_visibleThroughOpenArea == null)
+                return true;
+            if (_visibleThroughOpenArea[tilePosition.x, tilePosition.y])
+                return true;
+
+            return HasVisibleNeighbor(tilePosition, EightDirections);
+        }
+
+        private bool HasVisibleNeighbor(Vector2Int tilePosition, Vector2Int[] directions)
+        {
+            foreach (Vector2Int direction in directions)
+            {
+                Vector2Int neighbor = tilePosition + direction;
+
+                if (neighbor.x < 0 ||
+                    neighbor.y < 0 ||
+                    neighbor.x >= _visibleThroughOpenArea.GetLength(0) ||
+                    neighbor.y >= _visibleThroughOpenArea.GetLength(1))
+                    continue;
+
+                if (_visibleThroughOpenArea[neighbor.x, neighbor.y])
                     return true;
             }
 
@@ -230,13 +263,38 @@ namespace Resources.Scripts
             return Mathf.Max(distanceX, distanceY);
         }
 
+        private float GetAlphaForTile(
+            Vector2Int tilePosition,
+            Vector2Int playerPosition,
+            RectInt? currentRoom)
+        {
+            float pulseAlpha = ShouldPulseTile(tilePosition) ? beatAlphaPulse : 0f;
+
+            if (!currentRoom.HasValue)
+                return GetAlphaForPlayerDistance(GetDistanceFromPlayer(tilePosition, playerPosition), pulseAlpha);
+
+            RectInt room = currentRoom.Value;
+
+            if (room.Contains(tilePosition))
+                return Mathf.Clamp01(litAlpha + pulseAlpha);
+
+            int distanceFromRoom = GetDistanceFromRoom(tilePosition, room);
+
+            if (distanceFromRoom == 1)
+                return Mathf.Clamp01(firstFalloffAlpha + pulseAlpha);
+            if (distanceFromRoom == 2)
+                return Mathf.Clamp01(secondFalloffAlpha + pulseAlpha);
+
+            return darknessAlpha;
+        }
+
         private bool ShouldPulseTile(Vector2Int tilePosition)
         {
             int phaseOffset = _beatPulsePhase ? 1 : 0;
             return (tilePosition.x + tilePosition.y + phaseOffset) % 2 == 0;
         }
 
-        private float GetAlphaForTileDistance(int tileDistance, float pulseAlpha)
+        private float GetAlphaForPlayerDistance(int tileDistance, float pulseAlpha)
         {
             if (tileDistance <= fullLightTileRadius)
                 return Mathf.Clamp01(litAlpha + pulseAlpha);
@@ -247,5 +305,25 @@ namespace Resources.Scripts
 
             return darknessAlpha;
         }
+
+        private static readonly Vector2Int[] CardinalDirections =
+        {
+            Vector2Int.right,
+            Vector2Int.left,
+            Vector2Int.up,
+            Vector2Int.down
+        };
+
+        private static readonly Vector2Int[] EightDirections =
+        {
+            Vector2Int.right,
+            Vector2Int.left,
+            Vector2Int.up,
+            Vector2Int.down,
+            new Vector2Int(1, 1),
+            new Vector2Int(1, -1),
+            new Vector2Int(-1, 1),
+            new Vector2Int(-1, -1)
+        };
     }
 }

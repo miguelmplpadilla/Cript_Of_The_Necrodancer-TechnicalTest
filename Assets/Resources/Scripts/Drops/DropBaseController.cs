@@ -14,20 +14,47 @@ public class DropBaseController : MonoBehaviour
         yield return null;
     }
     
-    public void AssignToTile(TileManager tile)
+    public bool AssignToTile(TileManager tile)
     {
         if (tile == null)
-            return;
+            return false;
 
-        tile.tokenInside = this;
-        transform.position = tile.transform.position;
-        _hasAssignedTile = true;
+        if (tile.dropInside != null && tile.dropInside != this)
+        {
+            Debug.LogWarning($"Cannot assign {name} to tile {tile.indexPosition}: tile already has a drop.");
+            return false;
+        }
+
+        ClearCurrentTile();
 
         currentTile = tile;
+        tile.dropInside = this;
+        transform.position = tile.transform.position;
+        _hasAssignedTile = true;
+        return true;
     }
 
     public void SetRandomCant()
     {
         cantValue = Random.Range(3, 10);
+    }
+
+    protected virtual void OnDestroy()
+    {
+        ClearCurrentTile();
+    }
+
+    protected void ClearCurrentTile()
+    {
+        if (currentTile == null)
+            return;
+
+        if (currentTile.dropInside == this)
+            currentTile.dropInside = null;
+
+        if (currentTile.tokenInside == this)
+            currentTile.tokenInside = null;
+
+        currentTile = null;
     }
 }

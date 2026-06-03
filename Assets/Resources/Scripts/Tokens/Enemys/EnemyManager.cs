@@ -1,5 +1,6 @@
 using System.Collections;
 using Resources.Scripts;
+using Resources.Scripts.Drops;
 using UnityEngine;
 
 public class EnemyManager : TokenController
@@ -11,7 +12,6 @@ public class EnemyManager : TokenController
     private bool _hasSpawnPosition;
 
     private LifeBarEnemyController lifeBarEnemy;
-    
     
     public enum MovementType
     {
@@ -54,7 +54,10 @@ public class EnemyManager : TokenController
     {
         var player = GetPlayer();
         if (player != null)
+        {
+            CreateHit(player.indexPosition - indexPosition);
             player.ChangeLife(-1);
+        }
 
         yield break;
     }
@@ -127,7 +130,9 @@ public class EnemyManager : TokenController
             yield break;
         }
 
-        if (nextTilePosition.tokenInside != null)
+        if (nextTilePosition.tokenInside != null ||
+            nextTilePosition.dropInside is StairsLevelController ||
+            nextTilePosition.dropInside is ChestController)
         {
             nextTilePosition = null;
             yield break;

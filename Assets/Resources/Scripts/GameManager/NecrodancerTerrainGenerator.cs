@@ -10,6 +10,7 @@ public sealed class NecrodancerTerrainGenerator
     private const int MaxGenerationAttempts = 80;
     private const int PreferredRoomSeparation = 4;
     private const int MinimumRoomSeparation = 2;
+    private const int MaxCorridorEnemies = 4;
     private const double RoomWallBreakableChance = 0.75;
 
     public NecrodancerTerrainData Generate(
@@ -89,8 +90,10 @@ public sealed class NecrodancerTerrainGenerator
 
         CarveSpawnSafeZone(terrain);
         terrain.ExitPosition = GetFarthestRoomCenter(terrain.Rooms, terrain.PlayerSpawnPosition);
+        PlaceSecretRoomContents(terrain, random);
 
         PlaceEnemies(terrain, random, maxEnemiesPerRoom);
+        PlaceCorridorEnemies(terrain, random);
         EnsureEnemyPosition(terrain);
         PlaceBreakableWallsAndGold(terrain, random);
 
@@ -282,6 +285,132 @@ public sealed class NecrodancerTerrainGenerator
         }
     }
 
+    private void PlaceSecretRoomContents(NecrodancerTerrainData terrain, System.Random random)
+    {
+        foreach (SecretRoomData secretRoom in terrain.SecretRooms)
+        {
+            List<SecretRoomContentType> contentTypes = new List<SecretRoomContentType>
+            {
+                SecretRoomContentType.Gold,
+                SecretRoomContentType.Enemies,
+                SecretRoomContentType.Chest
+            };
+
+            Shuffle(contentTypes, random);
+
+            foreach (SecretRoomContentType contentType in contentTypes)
+            {
+                if (!TryPlaceSecretRoomContent(terrain, secretRoom, contentType, random))
+                    continue;
+
+                secretRoom.SetContentType(contentType);
+                break;
+            }
+        }
+    }
+
+    private bool TryPlaceSecretRoomContent(
+        NecrodancerTerrainData terrain,
+        SecretRoomData secretRoom,
+        SecretRoomContentType contentType,
+        System.Random random)
+    {
+        switch (contentType)
+        {
+            case SecretRoomContentType.Gold:
+                return TryPlaceSecretRoomGold(terrain, secretRoom, random);
+            case SecretRoomContentType.Enemies:
+                return TryPlaceSecretRoomEnemies(terrain, secretRoom, random);
+            case SecretRoomContentType.Chest:
+                return TryPlaceSecretRoomChest(terrain, secretRoom, random);
+            default:
+                return false;
+        }
+    }
+
+    private bool TryPlaceSecretRoomGold(NecrodancerTerrainData terrain, SecretRoomData secretRoom, System.Random random)
+    {
+        List<Vector2Int> candidates = GetSecretRoomContentCandidates(terrain, secretRoom.Room);
+        Shuffle(candidates, random);
+
+        foreach (Vector2Int candidate in candidates)
+        {
+            if (IsOccupiedByImportantPosition(terrain, candidate))
+                continue;
+
+            AddGoldPosition(terrain, candidate);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryPlaceSecretRoomEnemies(NecrodancerTerrainData terrain, SecretRoomData secretRoom, System.Random random)
+    {
+        List<Vector2Int> candidates = GetSecretRoomContentCandidates(terrain, secretRoom.Room);
+        Shuffle(candidates, random);
+
+        List<Vector2Int> selectedPositions = new List<Vector2Int>();
+
+        foreach (Vector2Int candidate in candidates)
+        {
+            if (IsOccupiedByImportantPosition(terrain, candidate))
+                continue;
+            if (!IsFarEnoughFromEnemies(candidate, selectedPositions, 1))
+                continue;
+
+            selectedPositions.Add(candidate);
+
+            if (selectedPositions.Count == 3)
+                break;
+        }
+
+        if (selectedPositions.Count < 3)
+            return false;
+
+        foreach (Vector2Int selectedPosition in selectedPositions)
+            terrain.EnemyPositions.Add(selectedPosition);
+
+        return true;
+    }
+
+    private bool TryPlaceSecretRoomChest(NecrodancerTerrainData terrain, SecretRoomData secretRoom, System.Random random)
+    {
+        List<Vector2Int> candidates = GetSecretRoomContentCandidates(terrain, secretRoom.Room);
+        Shuffle(candidates, random);
+
+        foreach (Vector2Int candidate in candidates)
+        {
+            if (IsOccupiedByImportantPosition(terrain, candidate))
+                continue;
+
+            terrain.ChestPositions.Add(candidate);
+            return true;
+        }
+
+        return false;
+    }
+
+    private List<Vector2Int> GetSecretRoomContentCandidates(NecrodancerTerrainData terrain, RectInt room)
+    {
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        for (int x = room.xMin; x < room.xMax; x++)
+        {
+            for (int y = room.yMin; y < room.yMax; y++)
+            {
+                Vector2Int candidate = new Vector2Int(x, y);
+
+                if (!IsWalkable(terrain, candidate))
+                    continue;
+
+                candidates.Add(candidate);
+            }
+        }
+
+        return candidates;
+    }
+
     private void PlaceEnemies(NecrodancerTerrainData terrain, System.Random random, int maxEnemiesPerRoom)
     {
         for (int roomIndex = 1; roomIndex < terrain.Rooms.Count; roomIndex++)
@@ -337,6 +466,67 @@ public sealed class NecrodancerTerrainGenerator
         }
 
         return null;
+    }
+
+    private void PlaceCorridorEnemies(NecrodancerTerrainData terrain, System.Random random)
+    {
+        List<Vector2Int> candidates = GetCorridorEnemyCandidates(terrain);
+        Shuffle(candidates, random);
+
+        int enemiesToPlace = Mathf.Min(random.Next(2, MaxCorridorEnemies + 1), candidates.Count);
+
+        int placedEnemies = 0;
+
+        for (int i = 0; i < candidates.Count && placedEnemies < enemiesToPlace; i++)
+        {
+            if (terrain.EnemyPositions.Count >= 28)
+                return;
+            if (!IsFarEnoughFromEnemies(candidates[i], terrain.EnemyPositions, 3))
+                continue;
+
+            terrain.EnemyPositions.Add(candidates[i]);
+            placedEnemies++;
+        }
+    }
+
+    private List<Vector2Int> GetCorridorEnemyCandidates(NecrodancerTerrainData terrain)
+    {
+        List<Vector2Int> candidates = new List<Vector2Int>();
+
+        for (int x = 1; x < terrain.Width - 1; x++)
+        {
+            for (int y = 1; y < terrain.Height - 1; y++)
+            {
+                Vector2Int candidate = new Vector2Int(x, y);
+
+                if (!IsValidCorridorEnemyPosition(terrain, candidate))
+                    continue;
+
+                candidates.Add(candidate);
+            }
+        }
+
+        return candidates;
+    }
+
+    private bool IsValidCorridorEnemyPosition(NecrodancerTerrainData terrain, Vector2Int candidate)
+    {
+        if (!IsWalkable(terrain, candidate))
+            return false;
+        if (IsInsideAnyRoom(terrain, candidate))
+            return false;
+        if (IsOccupiedByImportantPosition(terrain, candidate))
+            return false;
+        if (IsDoorPosition(terrain, candidate))
+            return false;
+        if (ManhattanDistance(candidate, terrain.PlayerSpawnPosition) <= SpawnSafeRadius + 3)
+            return false;
+        if (CountWalkableNeighbors(terrain, candidate, false) < 2)
+            return false;
+        if (!IsFarEnoughFromEnemies(candidate, terrain.EnemyPositions, 3))
+            return false;
+
+        return true;
     }
 
     private void EnsureEnemyPosition(NecrodancerTerrainData terrain)
@@ -440,12 +630,51 @@ public sealed class NecrodancerTerrainGenerator
                 continue;
             if (CountWalkableNeighbors(terrain, pocket, false) > 0)
                 continue;
+            if (!CanCreateSingleEntranceHiddenGoldPocket(terrain, pocket, breakableWall))
+                continue;
 
             terrain.Tiles[breakableWall.x, breakableWall.y] = TileManager.TileType.BREAKABLEWALL;
             terrain.Tiles[pocket.x, pocket.y] = TileManager.TileType.WALKABLE;
+            SealHiddenGoldPocketWalls(terrain, pocket, breakableWall);
             terrain.HiddenGoldPockets.Add(new HiddenGoldPocketData(pocket, breakableWall));
             AddGoldPosition(terrain, pocket);
             count--;
+        }
+    }
+
+    private bool CanCreateSingleEntranceHiddenGoldPocket(
+        NecrodancerTerrainData terrain,
+        Vector2Int pocket,
+        Vector2Int breakableWall)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int neighbor = pocket + direction;
+
+            if (!IsInsidePlayableBounds(terrain, neighbor))
+                return false;
+            if (neighbor == breakableWall)
+                continue;
+            if (terrain.Tiles[neighbor.x, neighbor.y] != TileManager.TileType.WALL)
+                return false;
+        }
+
+        return true;
+    }
+
+    private void SealHiddenGoldPocketWalls(
+        NecrodancerTerrainData terrain,
+        Vector2Int pocket,
+        Vector2Int breakableWall)
+    {
+        foreach (Vector2Int direction in CardinalDirections)
+        {
+            Vector2Int neighbor = pocket + direction;
+
+            if (!IsInsidePlayableBounds(terrain, neighbor) || neighbor == breakableWall)
+                continue;
+
+            terrain.Tiles[neighbor.x, neighbor.y] = TileManager.TileType.WALL;
         }
     }
 
@@ -481,6 +710,8 @@ public sealed class NecrodancerTerrainGenerator
                 if (!IsWalkable(terrain, position))
                     continue;
                 if (ManhattanDistance(position, enemy) > 2)
+                    continue;
+                if (IsInsideSecretRoom(terrain, position))
                     continue;
                 if (IsOccupiedByImportantPosition(terrain, position))
                     continue;
@@ -527,6 +758,11 @@ public sealed class NecrodancerTerrainGenerator
             return false;
         if (terrain.SecretRooms.Count < 1)
             return false;
+        foreach (SecretRoomData secretRoom in terrain.SecretRooms)
+        {
+            if (secretRoom.ContentType == SecretRoomContentType.None)
+                return false;
+        }
         if (!IsWalkable(terrain, terrain.PlayerSpawnPosition))
             return false;
         if (!IsWalkable(terrain, terrain.ExitPosition))
@@ -542,7 +778,9 @@ public sealed class NecrodancerTerrainGenerator
         {
             if (ManhattanDistance(enemyPosition, terrain.PlayerSpawnPosition) <= SpawnSafeRadius + 2)
                 return false;
-            if (CountWalkableNeighbors(terrain, enemyPosition, true) < 6)
+            if (IsInsideAnyRoom(terrain, enemyPosition) && CountWalkableNeighbors(terrain, enemyPosition, true) < 6)
+                return false;
+            if (!IsInsideAnyRoom(terrain, enemyPosition) && CountWalkableNeighbors(terrain, enemyPosition, false) < 2)
                 return false;
         }
 
@@ -1037,7 +1275,19 @@ public sealed class NecrodancerTerrainGenerator
         return position == terrain.PlayerSpawnPosition ||
                position == terrain.ExitPosition ||
                terrain.EnemyPositions.Contains(position) ||
-               terrain.GoldPositions.Contains(position);
+               terrain.GoldPositions.Contains(position) ||
+               terrain.ChestPositions.Contains(position);
+    }
+
+    private bool IsDoorPosition(NecrodancerTerrainData terrain, Vector2Int position)
+    {
+        foreach (DoorSpawnData doorPosition in terrain.DoorPositions)
+        {
+            if (doorPosition.Position == position)
+                return true;
+        }
+
+        return false;
     }
 
     private bool IsFarEnoughFromEnemies(Vector2Int candidate, List<Vector2Int> enemyPositions, int minDistance)
@@ -1230,6 +1480,7 @@ public sealed class NecrodancerTerrainData
     public Vector2Int ExitPosition { get; set; }
     public List<Vector2Int> EnemyPositions { get; } = new List<Vector2Int>();
     public List<Vector2Int> GoldPositions { get; } = new List<Vector2Int>();
+    public List<Vector2Int> ChestPositions { get; } = new List<Vector2Int>();
     public List<DoorSpawnData> DoorPositions { get; } = new List<DoorSpawnData>();
     public List<HiddenGoldPocketData> HiddenGoldPockets { get; } = new List<HiddenGoldPocketData>();
 }
@@ -1258,11 +1509,26 @@ public sealed class SecretRoomData
         Room = room;
         EntrancePositions = new List<Vector2Int>(entrancePositions);
         EntrancePosition = EntrancePositions.Count > 0 ? EntrancePositions[0] : Vector2Int.zero;
+        ContentType = SecretRoomContentType.None;
     }
 
     public RectInt Room { get; }
     public List<Vector2Int> EntrancePositions { get; }
     public Vector2Int EntrancePosition { get; }
+    public SecretRoomContentType ContentType { get; private set; }
+
+    public void SetContentType(SecretRoomContentType contentType)
+    {
+        ContentType = contentType;
+    }
+}
+
+public enum SecretRoomContentType
+{
+    None,
+    Gold,
+    Enemies,
+    Chest
 }
 
 public sealed class HiddenGoldPocketData
