@@ -15,6 +15,8 @@ public class GoblinEnemyManager : EnemyManager
 
         countBeats = 0;
         
+        if (PlayerController.instance == null) yield break;
+        
         Vector2Int positionIndexPlayer = PlayerController.instance.indexPosition;
         float distance = Vector2Int.Distance(positionIndexPlayer, indexPosition);
 

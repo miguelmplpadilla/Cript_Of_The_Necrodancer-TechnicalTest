@@ -632,7 +632,7 @@ public class MapGenerator : MonoBehaviour
         Vector2Int spawnPosition = GetStairsSpawnPosition();
         TileManager tile = GetTile(spawnPosition);
 
-        if (tile == null || !tile.CanPlaceGeneratedContent())
+        if (tile == null || !IsValidStairsPosition(spawnPosition))
         {
             Debug.LogWarning($"Could not spawn stairs at {spawnPosition}.");
             return;
@@ -788,7 +788,31 @@ public class MapGenerator : MonoBehaviour
 
         return tile != null &&
                tile.CanPlaceGeneratedContent() &&
-               position != playerSpawnPosition;
+               position != playerSpawnPosition &&
+               !IsReservedForGeneratedContent(position);
+    }
+
+    private bool IsReservedForGeneratedContent(Vector2Int position)
+    {
+        return enemySpawnPositions.Contains(position) ||
+               goldSpawnPositions.Contains(position) ||
+               chestSpawnPositions.Contains(position) ||
+               IsDoorSpawnPosition(position) ||
+               IsInsideSecretRoom(position);
+    }
+
+    private bool IsDoorSpawnPosition(Vector2Int position)
+    {
+        if (doorSpawnPositions == null)
+            return false;
+
+        foreach (DoorSpawnData doorSpawnPosition in doorSpawnPositions)
+        {
+            if (doorSpawnPosition.Position == position)
+                return true;
+        }
+
+        return false;
     }
 
     private void SpawnTestEnemies()

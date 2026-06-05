@@ -49,6 +49,8 @@ public class PlayerController : TokenController
 
     private void Update()
     {
+        if (GameManager.instance.isPaused) return;
+        
         if (_isMoving || !BeatController.instance.canRegisterPlay)
         {
             foreach (var key in directionKeys)

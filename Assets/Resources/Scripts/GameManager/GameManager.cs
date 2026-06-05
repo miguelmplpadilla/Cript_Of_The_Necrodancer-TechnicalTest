@@ -200,6 +200,7 @@ namespace Resources.Scripts
         public IEnumerator StartGame()
         {
             Time.timeScale = 1;
+            SumCoins(PlayerPrefs.GetInt("cantCoins", 0));
             yield return FadeImage(imageTransition, 1, 0, 1);
         }
 

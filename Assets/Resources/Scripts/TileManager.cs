@@ -44,6 +44,8 @@ namespace Resources.Scripts
 
             TileData tileData = MapGenerator.instance.tileDatas.Find(it => it.tileType == tileType);
 
+            if (tileData == null) return;
+            
             _sr.sprite = tileData.spriteTile;
 
             if (previousType == TileType.BREAKABLEWALL && tileType == TileType.WALKABLE)

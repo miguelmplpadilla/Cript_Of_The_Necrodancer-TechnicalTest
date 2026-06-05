@@ -116,7 +116,7 @@ public class EnemyManager : TokenController
 
         transform.localScale = new Vector3(provisionalIndex.x > indexPosition.x ? 1 : -1, 1, 1);
 
-        if (nextTilePosition == PlayerController.instance.nextTilePosition)
+        if (nextTilePosition == PlayerController.instance?.nextTilePosition)
         {
             nextTilePosition = null;
             yield return AttackPlayerWhenReachesTile(provisionalIndex);
